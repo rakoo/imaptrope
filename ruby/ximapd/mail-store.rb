@@ -236,8 +236,19 @@ class Ximapd
 
     def mailboxes
 			labels = @heliotropeclient.labels
-			puts "asked for mailboxes ; returning with labels : #{labels.join}"
-			labels
+			puts "asked for mailboxes ; returning with labels : #{labels.join " "}"
+
+			#Format : 
+			#[
+			# ["label1", "FLAGS for label1"],
+			# ["label2", "FLAGS for label2"],
+			#]
+
+			out = []
+			labels.each do |label|
+				out << [label, ""]
+			end
+			out
     end
 
     def create_mailbox(name, query = nil)
