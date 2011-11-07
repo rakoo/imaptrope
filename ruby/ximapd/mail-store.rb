@@ -132,13 +132,13 @@ class Ximapd
 
 
 
-      #@path = File.expand_path(@config["data_dir"])
-      #FileUtils.mkdir_p(@path)
+      @path = File.expand_path(@config["data_dir"])
+      FileUtils.mkdir_p(@path)
       #FileUtils.mkdir_p(File.expand_path("mails", @path))
       #uid_seq_path = File.expand_path("uid.seq", @path)
       #@uid_seq = Sequence.new(uid_seq_path)
-      #uidvalidity_seq_path = File.expand_path("uidvalidity.seq", @path)
-      #@uidvalidity_seq = Sequence.new(uidvalidity_seq_path)
+      uidvalidity_seq_path = File.expand_path("uidvalidity.seq", @path)
+      @uidvalidity_seq = Sequence.new(uidvalidity_seq_path)
       #mailbox_id_seq_path = File.expand_path("mailbox_id.seq", @path)
       #@mailbox_id_seq = Sequence.new(mailbox_id_seq_path, 0)
       #@mailbox_db_path = File.expand_path("mailbox.db", @path)
@@ -164,9 +164,9 @@ class Ximapd
 #backend_class = Ximapd.const_get(backend_name + "Backend")
 #@backend = backend_class.new(self)
       #synchronize do
-        #if @uidvalidity_seq.current.nil?
-          #@uidvalidity_seq.current = 1
-        #end
+        if @uidvalidity_seq.current.nil?
+          @uidvalidity_seq.current = 1
+        end
         #if @mailbox_id_seq.current.nil?
           #@mailbox_id_seq.current = 0
         #end
@@ -268,19 +268,30 @@ class Ximapd
     end
 
     def get_mailbox_status(mailbox_name, read_only)
-      @mailbox_db.transaction(true) do
-        mailbox = get_mailbox(mailbox_name)
-        if /\\Noselect/ni.match(mailbox["flags"])
-          raise NotSelectableMailboxError.new("can't open #{mailbox_name}: not a selectable mailbox")
-        end
-        mailbox_status = mailbox.status
-        mailbox_status.uidnext = @uid_seq.peek_next
-        mailbox_status.uidvalidity = @uidvalidity_seq.current
-        unless read_only
-          @last_peeked_uids[mailbox_name] = @uid_seq.current.to_i
-        end
-        return mailbox_status
-      end
+#TODO: raise an error if a mailbox can't be selected
+			#if /\\Noselect/ni.match(mailbox["flags"])
+				#raise NotSelectableMailboxError.new("can't open #{mailbox_name}: not a selectable mailbox")
+			#end
+# http://www.faqs.org/rfcs/rfc3501.html : mailbox status has these
+# fields : 
+# - MESSAGES : counts the number of messages in this mailbox
+# - RECENT : number of messages with the \Recent FLAG
+# - UIDNEXT : uid that will be assigned to the next mail to be stored
+# - UIDVALIDITY : int. If it has changed between 2 sessions, it means
+# the mailbox isn't valid, and the client needs to redownload messages
+# from the beginning
+# - UNSEEN : number of messages without the \Seen FLAG
+
+			mailbox_status = MailboxStatus.new
+			mailbox_status.messages = @heliotropeclient.count "~#{mailbox_name}"
+			mailbox_status.recent = @heliotropeclient.count "\\Recent" #this label/FLAG doesn't exist, but I don't know what we can do with it anyway
+			mailbox_status.uidnext = @heliotropeclient.size + 1
+			mailbox_status.uidvalidity = @uidvalidity_seq.current
+			mailbox_status.unseen = @heliotropeclient.count "~unread+~#{mailbox_name}"
+			#unless read_only
+				#@last_peeked_uids[mailbox_name] = @uid_seq.current.to_i
+			#end
+			return mailbox_status
     end
 
     def index_mail(mail, filename)
