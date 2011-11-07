@@ -1,0 +1,30 @@
+This version of ximapd is based on https://github.com/shugo/ximapd and adapted to work
+with heliotrope, the fabulous mail store by William Morgan : 
+https://github.com/wmorgan/heliotrope
+
+It is a IMAP server, supposed to offer an interface to the
+JSON-over-HTTP interface of Heliotrope.
+
+INSTALL, SETUP AND THE BORING THINGS
+
+Read README.en (or.ja)
+
+USAGE
+
+$ ruby -Iruby -Ibackends -I/path/to/heliotrope-client ximapd --start --debug
+
+WHAT WORKS FOR NOW
+
+[X] connection
+[X] simple authentication
+[ ] secure authentication (SSL)
+
+[x] LIST Command
+	; FLAGS for each mailbox are not yet spec'd
+[X] STATUS Command
+[X] EXAMINE Command
+
+
+
+NOTE : When I say it works, I don't mean it's totally safe. Use at your
+own risks.
