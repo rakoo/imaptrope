@@ -24,6 +24,9 @@
 # SUCH DAMAGE.
 
 class Ximapd
+
+  MailboxStatus = Struct.new(:messages, :recent, :uidnext, :uidvalidity, :unseen)
+
   class Mailbox
     attr_reader :mail_store, :name
 
@@ -76,225 +79,261 @@ class Ximapd
     end
   end
 
-  class SearchBasedMailbox < Mailbox
-    def import(mail_data)
-      if @data.key?("id")
-        mail_data.properties["mailbox-id"] = @data["id"]
-      end
-      path = get_mail_path(mail_data)
-      FileUtils.mkdir_p(File.dirname(path))
-      File.open(path, "w") do |f|
-        f.flock(File::LOCK_EX)
-        f.print(mail_data)
-        f.fsync
-      end
-      mailbox_id_path = path + ".mailbox-id"
-      File.open(mailbox_id_path, "w") do |f|
-        f.flock(File::LOCK_EX)
-        f.print(mail_data.properties["mailbox-id"].to_s)
-        f.fsync
-      end
-      time = mail_data.internal_date.to_time
-      File.utime(time, time, path)
-      @mail_store.index_mail(mail_data, path)
-    end
+	class HeliotropeFakeMailbox < Mailbox
+		
+		def initialize(mail_store, name, data)
+			@mail_store = mail_store
+			@name = name
+			@data = data
 
-    def query
-      q = Query.parse(@data["query"])
-      return @mail_store.plugins.inject(q) { |q, plugin|
-        plugin.translate_mailbox_query(self, q)
-      }
-    end
+			@heliotropeclient = @data['heliotrope-client']
+		end
 
-    def get_mail_path(mail)
-      relpath = format("mails/%s/%d",
-                       mail.internal_date.strftime("%Y/%m/%d"),
-                       mail.uid)
-      return File.expand_path(relpath, @mail_store.path)
-    end
+		def status
+			# http://www.faqs.org/rfcs/rfc3501.html : mailbox status has these
+			# fields : 
+			# - MESSAGES : counts the number of messages in this mailbox
+			# - RECENT : number of messages with the \Recent FLAG
+			# - UIDNEXT : uid that will be assigned to the next mail to be stored
+			# - UIDVALIDITY : int. If it has changed between 2 sessions, it means
+			# the mailbox isn't valid, and the client needs to redownload messages
+			# from the beginning
+			# - UNSEEN : number of messages without the \Seen FLAG
+			mailbox_status = MailboxStatus.new
+			mailbox_status.messages = @heliotropeclient.count "~#{@name}"
+			mailbox_status.recent = @heliotropeclient.count "\\Recent" #this label/FLAG doesn't exist, but I don't know what we can do with it anyway
 
-    def status
-      @mail_store.open_backend do |backend|
-        return backend.mailbox_status(self)
-      end
-    end
+#cheat : uid should be unique only to a mailbox, but 2 messages can have the same uid if they don't belong to the same mailbox;
+# here we
+# already know what will be the next uid, even if it is not linked to
+# the maailbox
+			mailbox_status.uidnext = @heliotropeclient.size + 1 
 
-    def uid_search(query)
-      @mail_store.open_backend do |backend|
-        return backend.uid_search(query)
-      end
-    end
+			mailbox_status.unseen = @heliotropeclient.count "~unread+~#{@name}"
 
-    def fetch(sequence_set)
-      @mail_store.open_backend do |backend|
-        return backend.fetch(self, sequence_set)
-      end
-    end
+			mailbox_status
+		end
+	end
 
-    def uid_fetch(sequence_set)
-      @mail_store.open_backend do |backend|
-        return backend.uid_fetch(self, sequence_set)
-      end
-    end
-  end
+  #class SearchBasedMailbox < Mailbox
+    #def import(mail_data)
+      #if @data.key?("id")
+        #mail_data.properties["mailbox-id"] = @data["id"]
+      #end
+      #path = get_mail_path(mail_data)
+      #FileUtils.mkdir_p(File.dirname(path))
+      #File.open(path, "w") do |f|
+        #f.flock(File::LOCK_EX)
+        #f.print(mail_data)
+        #f.fsync
+      #end
+      #mailbox_id_path = path + ".mailbox-id"
+      #File.open(mailbox_id_path, "w") do |f|
+        #f.flock(File::LOCK_EX)
+        #f.print(mail_data.properties["mailbox-id"].to_s)
+        #f.fsync
+      #end
+      #time = mail_data.internal_date.to_time
+      #File.utime(time, time, path)
+      #@mail_store.index_mail(mail_data, path)
+    #end
 
-  class EnvelopeSearchBasedMailbox < SearchBasedMailbox
-    def import(mail_data)
-      faked_mail_data =
-        MailData.new(mail_data.raw_data, mail_data.uid,
-                     mail_data.flags, mail_data.internal_date,
-                     '', mail_data.properties,
-                     mail_data.parsed_mail)
-      super(faked_mail_data)
-    end
+    #def query
+      #q = Query.parse(@data["query"])
+      #return @mail_store.plugins.inject(q) { |q, plugin|
+        #plugin.translate_mailbox_query(self, q)
+      #}
+    #end
 
-    def save
-      unless @mail_store.mailbox_db["mailboxes"].key?(@name)
-        @data["id"] = @mail_store.get_next_mailbox_id
-        @data["last_peeked_uid"] ||= 0
-        @data["query"] = format('mailbox-id = %d', @data["id"])
-      end
-      super
-    end
-  end
+    #def get_mail_path(mail)
+      #relpath = format("mails/%s/%d",
+                       #mail.internal_date.strftime("%Y/%m/%d"),
+                       #mail.uid)
+      #return File.expand_path(relpath, @mail_store.path)
+    #end
 
-  class DefaultMailbox < SearchBasedMailbox
-    def initialize(mail_store)
-      super(mail_store, "DEFAULT", {})
-    end
+    #def status
+      #@mail_store.open_backend do |backend|
+        #return backend.mailbox_status(self)
+      #end
+    #end
 
-    def import(mail_data)
-      if mail_data.properties["x-ml-name"].empty?
-        mail_data.properties["mailbox-id"] = 1
-      else
-        mail_data.properties["mailbox-id"] = 0
-      end
-      super(mail_data)
-    end
-  end
+    #def uid_search(query)
+      #@mail_store.open_backend do |backend|
+        #return backend.uid_search(query)
+      #end
+    #end
 
-  class StaticMailbox < Mailbox
-    def initialize(mail_store, name, data)
-      super(mail_store, name, data)
-      relpath = format("mailboxes/%d/flags.sdbm", data["id"])
-      @flags_db_path = File.expand_path(relpath, mail_store.path)
-    end
+    #def fetch(sequence_set)
+      #@mail_store.open_backend do |backend|
+        #return backend.fetch(self, sequence_set)
+      #end
+    #end
 
-    def save
-      unless @mail_store.mailbox_db["mailboxes"].key?(@name)
-        @data["id"] = @mail_store.get_next_mailbox_id
-        @data["last_peeked_uid"] ||= 0
-      end
-      super
-      FileUtils.mkdir_p(get_mailbox_dir)
-    end
+    #def uid_fetch(sequence_set)
+      #@mail_store.open_backend do |backend|
+        #return backend.uid_fetch(self, sequence_set)
+      #end
+    #end
+  #end
 
-    def import(mail_data)
-      path = get_mail_path(mail_data)
-      FileUtils.mkdir_p(File.dirname(path))
-      File.open(path, "w") do |f|
-        f.flock(File::LOCK_EX)
-        f.print(mail_data)
-        f.fsync
-      end
-      time = mail_data.internal_date.to_time
-      File.utime(time, time, path)
-      open_flags_db do |db|
-        db[mail_data.uid.to_s] = mail_data.flags
-      end
-    end
+  #class EnvelopeSearchBasedMailbox < SearchBasedMailbox
+    #def import(mail_data)
+      #faked_mail_data =
+        #MailData.new(mail_data.raw_data, mail_data.uid,
+                     #mail_data.flags, mail_data.internal_date,
+                     #'', mail_data.properties,
+                     #mail_data.parsed_mail)
+      #super(faked_mail_data)
+    #end
 
-    def get_mail_path(mail)
-      return File.expand_path(mail.uid.to_s, get_mailbox_dir)
-    end
+    #def save
+      #unless @mail_store.mailbox_db["mailboxes"].key?(@name)
+        #@data["id"] = @mail_store.get_next_mailbox_id
+        #@data["last_peeked_uid"] ||= 0
+        #@data["query"] = format('mailbox-id = %d', @data["id"])
+      #end
+      #super
+    #end
+  #end
 
-    def status
-      mailbox_status = MailboxStatus.new
-      uids = get_uids
-      mailbox_status.messages = uids.length
-      open_flags_db do |db|
-        mailbox_status.unseen = uids.select { |uid|
-          !/\\Seen\b/ni.match(db[uid.to_s])
-        }.length
-      end
-      mailbox_status.recent = uids.select { |uid|
-        uid > self["last_peeked_uid"]
-      }.length
-      return mailbox_status
-    end
+  #class DefaultMailbox < SearchBasedMailbox
+    #def initialize(mail_store)
+      #super(mail_store, "DEFAULT", {})
+    #end
 
-    def uid_search(query)
-      return []
-    end
+    #def import(mail_data)
+      #if mail_data.properties["x-ml-name"].empty?
+        #mail_data.properties["mailbox-id"] = 1
+      #else
+        #mail_data.properties["mailbox-id"] = 0
+      #end
+      #super(mail_data)
+    #end
+  #end
 
-    def fetch(sequence_set)
-      uids = get_uids
-      mails = []
-      sequence_set.each do |seq_number|
-        case seq_number
-        when Range
-          first = seq_number.first
-          last = seq_number.last == -1 ? uids.length : seq_number.last
-          for i in first .. last
-            uid = uids[i - 1]
-            next if uid.nil?
-            mail = StaticMail.new(@config, self, i, uid)
-            mails.push(mail)
-          end
-        else
-          uid = uids[seq_number - 1]
-          next if uid.nil?
-          mail = StaticMail.new(@config, self, seq_number, uid)
-          mails.push(mail)
-        end
-      end
-      return mails
-    end
+  #class StaticMailbox < Mailbox
+    #def initialize(mail_store, name, data)
+      #super(mail_store, name, data)
+      #relpath = format("mailboxes/%d/flags.sdbm", data["id"])
+      #@flags_db_path = File.expand_path(relpath, mail_store.path)
+    #end
 
-    def uid_fetch(sequence_set)
-      uids = get_uids
-      return uids if uids.empty?
-      uid_set = Set.new(uids)
-      mails = []
-      sequence_set.each do |seq_number|
-        case seq_number
-        when Range
-          first = seq_number.first
-          last = seq_number.last == -1 ? uids.last : seq_number.last
-          if last > uids.last
-            last = uids.last
-          end
+    #def save
+      #unless @mail_store.mailbox_db["mailboxes"].key?(@name)
+        #@data["id"] = @mail_store.get_next_mailbox_id
+        #@data["last_peeked_uid"] ||= 0
+      #end
+      #super
+      #FileUtils.mkdir_p(get_mailbox_dir)
+    #end
 
-          for uid in (first..last).to_a & uids
-            mail = StaticMail.new(@config, self, uid, uid)
-            mails.push(mail)
-          end
-        else
-          next unless uid_set.include?(seq_number)
-          mail = StaticMail.new(@config, self, seq_number, seq_number)
-          mails.push(mail)
-        end
-      end
-      return mails
-    end
+    #def import(mail_data)
+      #path = get_mail_path(mail_data)
+      #FileUtils.mkdir_p(File.dirname(path))
+      #File.open(path, "w") do |f|
+        #f.flock(File::LOCK_EX)
+        #f.print(mail_data)
+        #f.fsync
+      #end
+      #time = mail_data.internal_date.to_time
+      #File.utime(time, time, path)
+      #open_flags_db do |db|
+        #db[mail_data.uid.to_s] = mail_data.flags
+      #end
+    #end
 
-    def open_flags_db(&block)
-      SDBM.open(@flags_db_path, &block)
-    end
+    #def get_mail_path(mail)
+      #return File.expand_path(mail.uid.to_s, get_mailbox_dir)
+    #end
 
-    private
+    #def status
+      #mailbox_status = MailboxStatus.new
+      #uids = get_uids
+      #mailbox_status.messages = uids.length
+      #open_flags_db do |db|
+        #mailbox_status.unseen = uids.select { |uid|
+          #!/\\Seen\b/ni.match(db[uid.to_s])
+        #}.length
+      #end
+      #mailbox_status.recent = uids.select { |uid|
+        #uid > self["last_peeked_uid"]
+      #}.length
+      #return mailbox_status
+    #end
 
-    def get_mailbox_dir
-      relpath = format("mailboxes/%d", self["id"])
-      return File.expand_path(relpath, @mail_store.path)
-    end
+    #def uid_search(query)
+      #return []
+    #end
 
-    def get_uids
-      dirpath = File.expand_path(format("mailboxes/%d", self["id"]),
-                                 @mail_store.path)
-      return Dir.open(dirpath) { |dir|
-        dir.grep(/\A\d+\z/).collect { |uid| uid.to_i }.sort
-      }
-    end
-  end
+    #def fetch(sequence_set)
+      #uids = get_uids
+      #mails = []
+      #sequence_set.each do |seq_number|
+        #case seq_number
+        #when Range
+          #first = seq_number.first
+          #last = seq_number.last == -1 ? uids.length : seq_number.last
+          #for i in first .. last
+            #uid = uids[i - 1]
+            #next if uid.nil?
+            #mail = StaticMail.new(@config, self, i, uid)
+            #mails.push(mail)
+          #end
+        #else
+          #uid = uids[seq_number - 1]
+          #next if uid.nil?
+          #mail = StaticMail.new(@config, self, seq_number, uid)
+          #mails.push(mail)
+        #end
+      #end
+      #return mails
+    #end
+
+    #def uid_fetch(sequence_set)
+      #uids = get_uids
+      #return uids if uids.empty?
+      #uid_set = Set.new(uids)
+      #mails = []
+      #sequence_set.each do |seq_number|
+        #case seq_number
+        #when Range
+          #first = seq_number.first
+          #last = seq_number.last == -1 ? uids.last : seq_number.last
+          #if last > uids.last
+            #last = uids.last
+          #end
+
+          #for uid in (first..last).to_a & uids
+            #mail = StaticMail.new(@config, self, uid, uid)
+            #mails.push(mail)
+          #end
+        #else
+          #next unless uid_set.include?(seq_number)
+          #mail = StaticMail.new(@config, self, seq_number, seq_number)
+          #mails.push(mail)
+        #end
+      #end
+      #return mails
+    #end
+
+    #def open_flags_db(&block)
+      #SDBM.open(@flags_db_path, &block)
+    #end
+
+    #private
+
+    #def get_mailbox_dir
+      #relpath = format("mailboxes/%d", self["id"])
+      #return File.expand_path(relpath, @mail_store.path)
+    #end
+
+    #def get_uids
+      #dirpath = File.expand_path(format("mailboxes/%d", self["id"]),
+                                 #@mail_store.path)
+      #return Dir.open(dirpath) { |dir|
+        #dir.grep(/\A\d+\z/).collect { |uid| uid.to_i }.sort
+      #}
+    #end
+  #end
 end

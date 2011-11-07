@@ -106,8 +106,8 @@ class Ximapd
     end
   end
 
-  MailboxStatus = Struct.new(:messages, :recent, :uidnext, :uidvalidity,
-                             :unseen)
+#MailboxStatus = Struct.new(:messages, :recent, :uidnext, :uidvalidity,
+#:unseen)
 
   class MailStore
     include MonitorMixin
@@ -238,7 +238,7 @@ class Ximapd
 			labels = @heliotropeclient.labels
 			puts "asked for mailboxes ; returning with labels : #{labels.join " "}"
 
-			#Format : 
+			#Format to return: 
 			#[
 			# ["label1", "FLAGS for label1"],
 			# ["label2", "FLAGS for label2"],
@@ -272,22 +272,10 @@ class Ximapd
 			#if /\\Noselect/ni.match(mailbox["flags"])
 				#raise NotSelectableMailboxError.new("can't open #{mailbox_name}: not a selectable mailbox")
 			#end
-# http://www.faqs.org/rfcs/rfc3501.html : mailbox status has these
-# fields : 
-# - MESSAGES : counts the number of messages in this mailbox
-# - RECENT : number of messages with the \Recent FLAG
-# - UIDNEXT : uid that will be assigned to the next mail to be stored
-# - UIDVALIDITY : int. If it has changed between 2 sessions, it means
-# the mailbox isn't valid, and the client needs to redownload messages
-# from the beginning
-# - UNSEEN : number of messages without the \Seen FLAG
 
-			mailbox_status = MailboxStatus.new
-			mailbox_status.messages = @heliotropeclient.count "~#{mailbox_name}"
-			mailbox_status.recent = @heliotropeclient.count "\\Recent" #this label/FLAG doesn't exist, but I don't know what we can do with it anyway
-			mailbox_status.uidnext = @heliotropeclient.size + 1
+			mailbox = get_mailbox mailbox_name
+			mailbox_status = mailbox.status
 			mailbox_status.uidvalidity = @uidvalidity_seq.current
-			mailbox_status.unseen = @heliotropeclient.count "~unread+~#{mailbox_name}"
 			#unless read_only
 				#@last_peeked_uids[mailbox_name] = @uid_seq.current.to_i
 			#end
@@ -321,21 +309,25 @@ class Ximapd
     end
 
     def get_mailbox(name)
-      if name == "DEFAULT"
-        return DefaultMailbox.new(self)
-      end
-      data = @mailbox_db["mailboxes"][name]
-      unless data
-        raise NoMailboxError.new("no such mailbox")
-      end
-      class_name = data["class"]
-      if class_name
-        return Ximapd.const_get(class_name).new(self, name,
-                                                @mailbox_db["mailboxes"][name])
-      else
-        return SearchBasedMailbox.new(self, name,
-                                      @mailbox_db["mailboxes"][name])
-      end
+			data = Hash.new
+			data['heliotrope-client'] = @heliotropeclient
+			return HeliotropeFakeMailbox.new self, name, data
+
+      #if name == "DEFAULT"
+        #return DefaultMailbox.new(self)
+      #end
+      #data = @mailbox_db["mailboxes"][name]
+      #unless data
+        #raise NoMailboxError.new("no such mailbox")
+      #end
+      #class_name = data["class"]
+      #if class_name
+        #return Ximapd.const_get(class_name).new(self, name,
+                                                #@mailbox_db["mailboxes"][name])
+      #else
+        #return SearchBasedMailbox.new(self, name,
+                                      #@mailbox_db["mailboxes"][name])
+      #end
     end
 
     def delete_mails(mails)

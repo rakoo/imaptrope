@@ -15,6 +15,9 @@ $ ruby -Iruby -Ibackends -I/path/to/heliotrope-client ximapd --start --debug
 
 WHAT WORKS FOR NOW
 
+NOTE : When I say it works, I don't mean it's totally safe. Use at your
+own risks.
+
 [X] connection
 [X] simple authentication
 [ ] secure authentication (SSL)
@@ -23,8 +26,4 @@ WHAT WORKS FOR NOW
 	; FLAGS for each mailbox are not yet spec'd
 [X] STATUS Command
 [X] EXAMINE Command
-
-
-
-NOTE : When I say it works, I don't mean it's totally safe. Use at your
-own risks.
+[X] SELECT Command
