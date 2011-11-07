@@ -23,6 +23,9 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 
+require "heliotrope-client"
+require "heliotrope-backend"
+
 class Ximapd
   DEFAULT_CHARSET = "iso-2022-jp"
   DEFAULT_ML_HEADER_FIELDS = [
@@ -109,6 +112,10 @@ class Ximapd
   class MailStore
     include MonitorMixin
 
+		MESSAGE_MUTABLE_STATE = Set.new %w(starred unread deleted)
+		MESSAGE_IMMUTABLE_STATE = Set.new %w(attachment signed encrypteu draft sent)
+		MESSAGE_STATE = MESSAGE_IMMUTABLE_STATE + MESSAGE_MUTABLE_STATE
+
     attr_reader :config, :path, :mailbox_db, :mailbox_db_path
     attr_reader :plugins
     attr_reader :uid_seq, :uidvalidity_seq, :mailbox_id_seq
@@ -118,58 +125,65 @@ class Ximapd
       super()
       @config = config
       @logger = @config["logger"]
-      @path = File.expand_path(@config["data_dir"])
-      FileUtils.mkdir_p(@path)
-      FileUtils.mkdir_p(File.expand_path("mails", @path))
-      uid_seq_path = File.expand_path("uid.seq", @path)
-      @uid_seq = Sequence.new(uid_seq_path)
-      uidvalidity_seq_path = File.expand_path("uidvalidity.seq", @path)
-      @uidvalidity_seq = Sequence.new(uidvalidity_seq_path)
-      mailbox_id_seq_path = File.expand_path("mailbox_id.seq", @path)
-      @mailbox_id_seq = Sequence.new(mailbox_id_seq_path, 0)
-      @mailbox_db_path = File.expand_path("mailbox.db", @path)
-      case @config["db_type"].to_s.downcase
-      when "pstore"
-        @mailbox_db = PStore.new(@mailbox_db_path)
-      else
-        @mailbox_db = YAML::Store.new(@mailbox_db_path)
-      end
-      override_commit_new(@mailbox_db)
-      @mail_parser = RMail::Parser.new
-      @default_charset = @config["default_charset"] || DEFAULT_CHARSET
-      @ml_header_fields =
-        @config["ml_header_fields"] || DEFAULT_ML_HEADER_FIELDS
-      @last_peeked_uids = {}
-      @backend_ref_count = 0
+			@heliotropeclient = HeliotropeClient.new "http://localhost:8042"
+# Override evrything, we only want it to work with heliotrope
+			@backend = HeliotropeBackend.new
+
+
+
+
+      #@path = File.expand_path(@config["data_dir"])
+      #FileUtils.mkdir_p(@path)
+      #FileUtils.mkdir_p(File.expand_path("mails", @path))
+      #uid_seq_path = File.expand_path("uid.seq", @path)
+      #@uid_seq = Sequence.new(uid_seq_path)
+      #uidvalidity_seq_path = File.expand_path("uidvalidity.seq", @path)
+      #@uidvalidity_seq = Sequence.new(uidvalidity_seq_path)
+      #mailbox_id_seq_path = File.expand_path("mailbox_id.seq", @path)
+      #@mailbox_id_seq = Sequence.new(mailbox_id_seq_path, 0)
+      #@mailbox_db_path = File.expand_path("mailbox.db", @path)
+      #case @config["db_type"].to_s.downcase
+      #when "pstore"
+        #@mailbox_db = PStore.new(@mailbox_db_path)
+      #else
+        #@mailbox_db = YAML::Store.new(@mailbox_db_path)
+      #end
+      #override_commit_new(@mailbox_db)
+      #@mail_parser = RMail::Parser.new
+      #@default_charset = @config["default_charset"] || DEFAULT_CHARSET
+      #@ml_header_fields =
+        #@config["ml_header_fields"] || DEFAULT_ML_HEADER_FIELDS
+      #@last_peeked_uids = {}
+      #@backend_ref_count = 0
       lock_path = File.expand_path("lock", @path)
       @lock = File.open(lock_path, "w+")
       @lock_count = 0
-      backend_name = @config["backend"] || "Rast"
-      lib = File.expand_path(backend_name.downcase, Backend.directory)
-      require lib
-      backend_class = Ximapd.const_get(backend_name + "Backend")
-      @backend = backend_class.new(self)
-      synchronize do
-        if @uidvalidity_seq.current.nil?
-          @uidvalidity_seq.current = 1
-        end
-        if @mailbox_id_seq.current.nil?
-          @mailbox_id_seq.current = 0
-        end
-        @mailbox_db.transaction do
-          @mailbox_db["mailboxes"] ||= DEFAULT_MAILBOXES.dup
-          @mailbox_db["mailing_lists"] ||= {}
-          convert_old_mailbox_db
-        end
-        @backend.setup
-        begin
-          create_mailbox("INBOX")
-        rescue MailboxExistError
-        end
-        @mailbox_db.transaction do
-          @plugins = Plugin.create_plugins(@config, self)
-        end
-      end
+#backend_name = @config["backend"] || "Rast"
+#lib = File.expand_path(backend_name.downcase, Backend.directory)
+#require lib
+#backend_class = Ximapd.const_get(backend_name + "Backend")
+#@backend = backend_class.new(self)
+      #synchronize do
+        #if @uidvalidity_seq.current.nil?
+          #@uidvalidity_seq.current = 1
+        #end
+        #if @mailbox_id_seq.current.nil?
+          #@mailbox_id_seq.current = 0
+        #end
+        #@mailbox_db.transaction do
+          #@mailbox_db["mailboxes"] ||= DEFAULT_MAILBOXES.dup
+          #@mailbox_db["mailing_lists"] ||= {}
+          #convert_old_mailbox_db
+        #end
+        #@backend.setup
+        #begin
+          #create_mailbox("INBOX")
+        #rescue MailboxExistError
+        #end
+        #@mailbox_db.transaction do
+          #@plugins = Plugin.create_plugins(@config, self)
+        #end
+      #end
     end
 
     def close
@@ -221,57 +235,25 @@ class Ximapd
     end
 
     def mailboxes
-      @mailbox_db.transaction(true) do
-        return @mailbox_db["mailboxes"]
-      end
+			labels = @heliotropeclient.labels
+			puts "asked for mailboxes ; returning with labels : #{labels.join}"
+			labels
     end
 
     def create_mailbox(name, query = nil)
-      @mailbox_db.transaction do
-        dir = name.slice(/(.*)\/\z/ni, 1)
-        if dir
-          mkdir_p(dir)
-        else
-          mkdir_p(File.dirname(name))
-          create_mailbox_internal(name, query)
-        end
-      end
+      puts "trying to create a new mailbox; impossible, just label a mail with a new label"
     end
 
     def delete_mailbox(name)
-      @mailbox_db.transaction do
-        delete_mailbox_internal(name)
-      end
+			puts "delete label #{name}: I will have to delete it from all mails with it !"
+#TODO
+
     end
 
     def rename_mailbox(name, new_name)
-      @mailbox_db.transaction do
-        if @mailbox_db["mailboxes"].include?(new_name)
-          raise MailboxExistError, format("%s already exists", new_name)
-        end
-        mkdir_p(File.dirname(new_name))
-        pat = "\\A" + Regexp.quote(name) + "(/.*)?\\z"
-        re = Regexp.new(pat, nil, "n")
-        mailboxes = @mailbox_db["mailboxes"].select { |k, v|
-          re.match(k)
-        }
-        if mailboxes.empty?
-          raise NoMailboxError, format("%s does not exist", name)
-        end
-        for k, v in mailboxes
-          new_key = k.sub(re) { $1 ? new_name + $1 : new_name }
-          @mailbox_db["mailboxes"].delete(k)
-          @mailbox_db["mailboxes"][new_key] = v
-          list_id = v["list_id"]
-          if list_id
-            @mailbox_db["mailing_lists"][list_id]["mailbox"] = new_key
-          end
-        end
-        query = extract_query(new_name)
-        if query
-          @mailbox_db["mailboxes"][new_name]["query"] = query
-        end
-      end
+			puts "rename label #{name} to #{new_name}"
+#TODO
+
     end
 
     def get_mailbox_status(mailbox_name, read_only)
@@ -287,187 +269,6 @@ class Ximapd
           @last_peeked_uids[mailbox_name] = @uid_seq.current.to_i
         end
         return mailbox_status
-      end
-    end
-
-    def import(args, mailbox_name = nil)
-      open_backend do |backend|
-        for arg in args
-          filenames = []
-          Find.find(arg) do |filename|
-            if File.file?(filename)
-              filenames.push(filename)
-            end
-          end
-          if @config.key?("exclude")
-            pat = Regexp.new(@config["exclude"], nil, "n")
-            filenames = filenames.reject { |filename|
-              pat.match(filename)
-            }
-          end
-          if @config["progress"]
-            progress_bar = ProgressBar.new(arg.slice(/.{1,13}\z/n),
-                                           filenames.length)
-          else
-            progress_bar = NullObject.new
-          end
-          for filename in filenames
-            File.open(filename) do |f|
-              import_mail_internal(f.read, mailbox_name, "", f.mtime)
-            end
-            progress_bar.inc
-          end
-          progress_bar.finish
-        end
-      end
-    end
-
-    def import_file(f, mailbox_name = nil)
-      open_backend do |backend|
-        return import_mail_internal(f.read, mailbox_name)
-      end
-    end
-
-    def import_mbox(args, mailbox_name = nil)
-      open_backend do |backend|
-        for arg in args
-          Find.find(arg) do |filename|
-            if File.file?(filename)
-              File.open(filename) do |f|
-                import_mbox_internal(backend, f, mailbox_name)
-              end
-            end
-          end
-        end
-      end
-    end
-
-    def import_mbox_file(f, mailbox_name = nil)
-      open_backend do |backend|
-        import_mbox_internal(backend, f, mailbox_name)
-      end
-    end
-
-    def import_imap(folders, mailbox_name = nil)
-      host = @config["remote_host"]
-      port = @config["remote_port"]
-      ssl = @config["remote_ssl"]
-      if port.nil?
-        if ssl
-          port = 993
-        else
-          port = 143
-        end
-      end
-      auth = @config["remote_auth"]
-      if auth.nil?
-        auth = "CRAM-MD5"
-      end
-      user = @config["remote_user"]
-      pass = @config["remote_password"]
-
-      @logger.info("importing from #{host} via IMAP...")
-      imap = Net::IMAP.new(host, port, ssl)
-      imap.authenticate(auth, user, pass)
-
-      visited_folders = Set.new
-      open_backend do |backend|
-        folders.each do |f|
-          folders = imap.list('', f)
-          if folders.nil?
-            @logger.warn("no folder matches: #{f}")
-            next
-          end
-          folders.each do |folder|
-            next if visited_folders.include?(folder.name)
-            begin
-              imap.select(folder.name)
-              mail_count = imap.responses["EXISTS"][-1]
-              if mail_count == 0
-                @logger.info("0 messages in #{folder.name}")
-                next
-              end
-              imported_uids = Set.new
-              progress_bar = NullObject.new
-              handler = Proc.new { |resp|
-                if resp.kind_of?(Net::IMAP::UntaggedResponse) &&
-                  resp.name == "FETCH"
-                  mail = resp.data
-                  # IMAP server may return only FLAGS if \Seen is set.
-                  if !imported_uids.include?(mail.attr["UID"]) &&
-                    mail.attr["BODY[]"]
-                    indate = DateTime.strptime(mail.attr["INTERNALDATE"], 
-                                               "%d-%b-%Y %H:%M:%S %z")
-                    if @config["import_imap_flags"]
-                      flags = mail.attr["FLAGS"].collect { |flag|
-                        if flag.kind_of?(Symbol)
-                          '\\' + flag.to_s
-                        else
-                          flag.to_s
-                        end
-                      }.join(" ")
-                    else
-                      flags = ""
-                    end
-                    import_mail_internal(mail.attr["BODY[]"], mailbox_name,
-                                         flags, indate)
-                    imported_uids.add(mail.attr["UID"])
-                    progress_bar.inc
-                    imap.responses["FETCH"].clear
-                  end
-                end
-              }
-              imap.add_response_handler(handler)
-              begin
-                fetch_attrs = ["UID", "BODY[]", "INTERNALDATE"]
-                if @config["import_imap_flags"]
-                  fetch_attrs.push("FLAGS")
-                end
-                if @config["import_all"]
-                  @logger.info("#{mail_count} messages in #{folder.name}")
-                  if @config["progress"]
-                    progress_bar = ProgressBar.new(folder.name, mail_count)
-                  end
-                  imap.fetch(1 .. -1, fetch_attrs)
-                else
-                  uids = imap.uid_search("NOT KEYWORD XimapdImported")
-                  @logger.info("#{uids.length} unseen messages " + 
-                               "in #{folder.name}")
-                  if @config["progress"]
-                    progress_bar = ProgressBar.new(folder.name, uids.length)
-                  end
-                  while uids.length > 0
-                    imap.uid_fetch(uids.slice!(0, 100), fetch_attrs)
-                  end
-                end
-                progress_bar.finish
-              ensure
-                imap.remove_response_handler(handler)
-              end
-              flags = ["XimapdImported"]
-              unless @config["keep"]
-                flags.push(:Deleted)
-              end
-              uids = imported_uids.to_a.sort
-              while uids.length > 0
-                imap.uid_store(uids.slice!(0, 100), "+FLAGS.SILENT", flags)
-              end
-            rescue StandardError => e
-              @logger.log_exception(e, folder.name)
-            ensure
-              visited_folders.add(folder.name)
-              imap.close
-            end
-          end
-        end
-      end
-      @logger.info("imported from #{host}")
-    end
-
-    def import_mail(str, mailbox_name = nil, flags = "", indate = nil,
-                    override = {})
-      open_backend do
-        import_mail_internal(str, mailbox_name, flags, indate, override)
       end
     end
 
@@ -516,14 +317,14 @@ class Ximapd
     end
 
     def delete_mails(mails)
-      open_backend do |backend|
-        for mail in mails
-          for plugin in @plugins
-            plugin.on_delete_mail(mail)
-          end
-          mail.delete
-        end
-      end
+			puts "trying to delete mails; I will put the label \"to-delete\" on them"
+			for mail in mails
+#TODO : set uid = mail's message_id in heliotrope
+				data = @heliotropeclient.message mail.uid
+				old_labels = Set.new(data["labels"]) - MESSAGE_STATE
+				new_labels = old_labels + Set.new(%w(to-delete))
+				@heliotropeclient.set_labels! data["thread_id"], new_labels
+			end
     end
 
     def open_backend(*args, &block)
@@ -678,30 +479,7 @@ class Ximapd
       return mbox
     end
 
-    def create_mailbox_internal(name, query = nil)
-      if @mailbox_db["mailboxes"].key?(name)
-        raise MailboxExistError, format("mailbox already exist - %s", name)
-      end
-      if /\Astatic\//u.match(name)
-        mailbox = StaticMailbox.new(self, name, "flags" => "")
-        mailbox.save
-        return
-      end
-      mailbox = {
-        "flags" => "",
-        "last_peeked_uid" => 0
-      }
-      if query.nil?
-        query = extract_query(name)
-        if query.nil?
-          mailbox_id = get_next_mailbox_id
-          query = format('mailbox-id = %d', mailbox_id)
-          mailbox["id"] = mailbox_id
-        end
-      end
-      mailbox["query"] = query
-      @mailbox_db["mailboxes"][name] = mailbox
-    end
+
 
     def extract_query(mailbox_name)
       s = mailbox_name.slice(/\Aqueries\/(.*)/u, 1)
@@ -717,42 +495,9 @@ class Ximapd
       end
     end
 
-    def import_mbox_internal(backend, f, mailbox_name = nil)
-      s = nil
-      f.each_line do |line|
-        if /\AFrom\s+\S+\s+[A-Z][a-z]{2} [A-Z][a-z]{2}\s+\d+ \d\d:\d\d:\d\d \d+/.match(line)
-          if s
-            uid = import_mail_internal(s, mailbox_name)
-          end
-          s = line
-        else
-          s.concat(line) if s
-        end
-      end
-      if s
-        uid = import_mail_internal(s, mailbox_name)
-      end
-    end
 
-    def delete_mailbox_internal(name)
-      pat = "\\A" + Regexp.quote(name) + "(/.*)?\\z"
-      re = Regexp.new(pat, nil, "n")
-      deleted_mailboxes = []
-      @mailbox_db["mailboxes"].delete_if { |k, v|
-        if re.match(k)
-          deleted_mailboxes.push(v)
-          true
-        else
-          false
-        end
-      }
-      for mbox in deleted_mailboxes
-        list_id = mbox["list_id"]
-        if list_id
-          @mailbox_db["mailing_lists"].delete(list_id)
-        end
-      end
-    end
+
+
 
     def reindex_month(dir)
       filenames = []

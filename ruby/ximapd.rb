@@ -296,6 +296,7 @@ class Ximapd
       @mail_store = Ximapd::MailStore.new(@config)
       begin
         start_servers
+        @config.each {|key, value| puts "#{key} : #{value}"}
         wait_servers
         close_sessions
         @logger.info("terminated")

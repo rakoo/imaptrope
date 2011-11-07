@@ -193,8 +193,10 @@ class Ximapd
     end
 
     def exec
-      if @session.secure? &&
-        @userid == @config["user"] && @password == @config["password"]
+			puts "login : #{@session.secure?}"
+# don't use secure session for now
+#if @session.secure? &&
+			if @userid == @config["user"] && @password == @config["password"]
         @session.login
         send_tagged_ok
       else
