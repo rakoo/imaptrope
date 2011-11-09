@@ -23,6 +23,8 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 
+require 'heliotrope-client'
+
 class Ximapd
   class Mail
     include DataFormat
@@ -36,46 +38,54 @@ class Ximapd
       @uid = uid
       @mail_store = @mailbox.mail_store
       @parsed_mail = nil
+
+			@heliotropeclient = @mail_store.heliotropeclient
     end
 
     def envelope
       return envelope_internal(parsed_mail)
     end
 
-    def path
-      return @mailbox.get_mail_path(self)
-    end
+    #def path
+      #return @mailbox.get_mail_path(self)
+    #end
 
-    def old_path
-      dir1, dir2 = *[@uid].pack("v").unpack("H2H2")
-      relpath = format("mail/%s/%s/%d", dir1, dir2, uid)
-      return File.expand_path(relpath, @config["data_dir"])
-    end
+    #def old_path
+      #dir1, dir2 = *[@uid].pack("v").unpack("H2H2")
+      #relpath = format("mail/%s/%s/%d", dir1, dir2, uid)
+      #return File.expand_path(relpath, @config["data_dir"])
+    #end
 
     def size
-      begin
-        return File.size(path)
-      rescue Errno::ENOENT
-        return File.size(old_path)
-      end
+			puts "asking for a mail size; impossible for the moment"
+			0
+      #begin
+        #return File.size(path)
+      #rescue Errno::ENOENT
+        #return File.size(old_path)
+      #end
     end
 
     def to_s
-      open_file do |f|
-        f.flock(File::LOCK_SH)
-        return f.read
-      end
+			#TODO : parse the message if html, ...
+			message = @heliotropeclient.message(@uid).fetch("parts").first.fetch("content")
+      #open_file do |f|
+        #f.flock(File::LOCK_SH)
+        #return f.read
+      #end
     end
 
     def get_header(part = nil)
-      if part
-        return get_part(part).body.to_s.slice(/.*?\n\n/mn).gsub(/\n/, "\r\n")
-      else
-        open_file do |f|
-          f.flock(File::LOCK_SH)
-          return f.gets("\r\n\r\n")
-        end
-      end
+			puts "asking for the header of a message; impossible for now"
+			""
+      #if part
+        #return get_part(part).body.to_s.slice(/.*?\n\n/mn).gsub(/\n/, "\r\n")
+      #else
+        #open_file do |f|
+          #f.flock(File::LOCK_SH)
+          #return f.gets("\r\n\r\n")
+        #end
+      #end
     end
 
     def get_header_fields(fields, part = nil)
@@ -118,6 +128,23 @@ class Ximapd
     def header
       return parsed_mail.header
     end
+
+    def flags(get_recent = true)
+			@heliotropeclient.message(@uid).labels
+		end
+
+    def flags=(s)
+			thread_id = @heliotropeclient.message(@uid).fetch("thread_id")
+			@heliotropeclient.set_labels! thread_id, labels
+
+    end
+
+    def delete
+			puts "trying to delete mail; mark it as \"to-delete\""
+			thread_id = @heliotropeclient.message(@uid).fetch("thread_id")
+			@heliotropeclient.set_labels! thread_id, Set.new(%w(to-delete))
+    end
+
 
     private
 
@@ -364,7 +391,7 @@ class Ximapd
     end
 
     def flags=(s)
-      result = @mail_store.backend.set_flags(@uid, @item_id, @indexed_obj, s)
+			result = @mail_store.backend.set_flags(@uid, @item_id, @indexed_obj, s)
       @indexed_obj = nil
       return result
     end
