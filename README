@@ -27,3 +27,15 @@ own risks.
 [X] STATUS Command
 [X] EXAMINE Command
 [X] SELECT Command
+
+[ ] SEARCH Command
+	[X] BODY
+	[X] BCC
+	[X] ANSWERED
+	[X] RECENT
+	[X] DRAFT
+	[X] DELETED
+	[X] UNREAD
+
+[ ] FETCH
+	; might be a good idea to take heliotrope/lib/heliotrope/message.rb
