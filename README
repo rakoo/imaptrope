@@ -2,12 +2,16 @@ This version of ximapd is based on https://github.com/shugo/ximapd and adapted t
 with heliotrope, the fabulous mail store by William Morgan : 
 https://github.com/wmorgan/heliotrope
 
-It is a IMAP server, supposed to offer an interface to the
+It is an IMAP server, supposed to offer an interface to the
 JSON-over-HTTP interface of Heliotrope.
 
 INSTALL, SETUP AND THE BORING THINGS
 
-Read README.en (or.ja)
+Read README.en (or.ja); you don't need to really install it to test it.
+Just run 
+$ ruby install.rb --prefix=./fake
+to create the 'ximapd' bin that you will use afterwards. You can then
+remove the ./fake dir safely.
 
 USAGE
 
