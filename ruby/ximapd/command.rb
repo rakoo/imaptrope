@@ -1340,12 +1340,11 @@ class Ximapd
         charset = "us-ascii"
       end
       mailbox = @session.get_current_mailbox
-      @current_mailbox_query = mailbox.query
-      return command_class.new(search_keys(charset, @current_mailbox_query))
+      return command_class.new(search_keys(charset))
     end
 
-    def search_keys(charset, query = NullQuery.new)
-      result = query
+    def search_keys(charset)
+      result = NullQuery.new
       token = lookahead
       if token.symbol == T_ATOM && token.value.upcase == "NOT"
         shift_token
@@ -1451,35 +1450,35 @@ class Ximapd
         match(T_SPACE)
         return PropertyLtQuery.new("size", number)
       when "ANSWERED"
-        return FlagQuery.new("\\Answered")
+        return FlagQuery.new("\~Answered")
       when "DELETED"
-        return FlagQuery.new("\\Deleted")
+        return FlagQuery.new("\~deleted")
       when "DRAFT"
-        return FlagQuery.new("\\Draft")
+        return FlagQuery.new("\~draft")
       when "FLAGGED"
-        return FlagQuery.new("\\Flagged")
+        return FlagQuery.new("\~Flagged")
       when "RECENT", "NEW"
-        return FlagQuery.new("\\Recent")
+        return FlagQuery.new("\~Recent")
       when "SEEN"
-        return FlagQuery.new("\\Seen")
+        return DiffQuery.new & FlagQuery.new("\~unread")
       when "KEYWORD"
         match(T_SPACE)
         return FlagQuery.new(atom)
       when "UNANSWERED"
-        return NoFlagQuery.new("\\Answered")
+        return DiffQuery.new & FlagQuery.new("\~Answered")
       when "UNDELETED"
-        return NoFlagQuery.new("\\Deleted")
+        return DiffQuery.new & FlagQuery.new("\~deleted")
       when "UNDRAFT"
-        return NoFlagQuery.new("\\Draft")
+        return DiffQuery.new & FlagQuery.new("\~draft")
       when "UNFLAGGED"
-        return NoFlagQuery.new("\\Flagged")
+        return DiffQuery.new & FlagQuery.new("\~Flagged")
       when "UNSEEN"
-        return NoFlagQuery.new("\\Seen")
+        return FlagQuery.new("\~unread")
       when "OLD"
-        return NoFlagQuery.new("\\Recent")
+        return DiffQuery.new & FlagQuery.new("\~Recent")
       when "UNKEYWORD"
         match(T_SPACE)
-        return NoFlagQuery.new(atom)
+        return TermQuery.new(atom)
       when "OR"
         match(T_SPACE)
         q1 = search_key(charset)

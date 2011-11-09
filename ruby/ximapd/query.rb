@@ -104,11 +104,11 @@ class Ximapd
     def to_s
       return @operands.collect { |operand|
         if operand.composite?
-          "( " + operand.to_s + " )"
+          "(" + operand.to_s + ")"
         else
           operand.to_s
         end
-      }.join(" " + operator + " ")
+      }.join(operator)
     end
 
     def composite?
@@ -130,7 +130,7 @@ class Ximapd
     private
 
     def operator
-      return "&"
+      return "+"
     end
   end
 
@@ -142,7 +142,7 @@ class Ximapd
     private
 
     def operator
-      return "|"
+      return "OR"
     end
   end
 
@@ -170,7 +170,7 @@ class Ximapd
     end
 
     def to_s
-      return quote(@value)
+      return @value
     end
   end
 
@@ -199,7 +199,7 @@ class Ximapd
     end
 
     def to_s
-      return format("%s %s %s", @name, operator, quote(@value))
+      return format("%s%s%s", @name, operator, @value)
     end
 
     private
@@ -285,7 +285,7 @@ class Ximapd
     end
 
     def to_s
-      return format("%s : %s", key, quote(@flag))
+      return format('%s', @flag)
     end
 
     def regexp
