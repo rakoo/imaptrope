@@ -153,10 +153,12 @@ class Ximapd
 				case atom
 				when Range
 					atom.each do |uid|
-						mails.push(Mail.new(@config, self, uid, uid))
+						rawbody = @heliotropeclient.raw_message uid
+						mails.push(Message.new(@mail_store, uid))
 					end
 				else
-					mails.push(Mail.new(@config, self, atom, atom))
+					rawbody = @heliotropeclient.raw_message atom
+					mails.push(Message.new(@mail_store, atom))
 				end
 			end
 

@@ -386,6 +386,23 @@ class Ximapd
       return @mailbox_id_seq.next
     end
 
+# methods to retrieve informations of a message from within it
+# heliotrope doesn't really have mailboxes, so these functions really
+# belong here. 
+
+		def fetch_rawbody(uid)
+			@heliotropeclient.raw_message uid
+		end
+
+		def fetch_labels_and_flags_for_uid(uid)
+			out = ""
+			@heliotropeclient.message(uid).fetch("labels").each do |l|
+				out << "~#{l}" << " "
+			end
+			out << "\\Seen" unless out.include?("~unread")
+			out.strip
+		end
+
     private
 
     def override_commit_new(db)
