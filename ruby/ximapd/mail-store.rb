@@ -116,10 +116,11 @@ class Ximapd
 		MESSAGE_IMMUTABLE_STATE = Set.new %w(attachment signed encrypteu draft sent)
 		MESSAGE_STATE = MESSAGE_IMMUTABLE_STATE + MESSAGE_MUTABLE_STATE
 
+		attr_reader :heliotropeclient
     attr_reader :config, :path, :mailbox_db, :mailbox_db_path
     attr_reader :plugins
     attr_reader :uid_seq, :uidvalidity_seq, :mailbox_id_seq
-    attr_reader :backend
+#attr_reader :backend
 
     def initialize(config)
       super()
@@ -246,8 +247,9 @@ class Ximapd
 
 			out = []
 			labels.each do |label|
-				out << [label, ""]
+				out << [label, ""] 
 			end
+			out << ["All Mail", ""] #Mailbox that contains all mails
 			out
     end
 
@@ -311,7 +313,7 @@ class Ximapd
     def get_mailbox(name)
 			data = Hash.new
 			data['heliotrope-client'] = @heliotropeclient
-			return HeliotropeFakeMailbox.new self, name, data
+			return HeliotropeFakeMailbox.new(self, name, data)
 
       #if name == "DEFAULT"
         #return DefaultMailbox.new(self)
