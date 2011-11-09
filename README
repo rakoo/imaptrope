@@ -42,6 +42,6 @@ own risks.
 	[X] UNREAD
 
 [ ] FETCH
-	; might be a good idea to take heliotrope/lib/heliotrope/message.rb
 	[X] UID
 	[X] FLAGS
+	[X] INTERNALDATE

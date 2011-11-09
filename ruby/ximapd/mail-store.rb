@@ -403,6 +403,10 @@ class Ximapd
 			out.strip
 		end
 
+		def fetch_date_for_uid(uid)
+			Time.at(@heliotropeclient.message(uid).fetch("date"))
+		end
+
     private
 
     def override_commit_new(db)
