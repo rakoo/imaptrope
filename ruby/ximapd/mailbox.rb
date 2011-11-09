@@ -23,6 +23,8 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 
+require 'cgi'
+
 class Ximapd
 
   MailboxStatus = Struct.new(:messages, :recent, :uidnext, :uidvalidity, :unseen)
@@ -89,6 +91,11 @@ class Ximapd
 			@heliotropeclient = @data['heliotrope-client']
 		end
 
+		def query
+			NullQuery.new
+		end
+
+
 		def status
 			# http://www.faqs.org/rfcs/rfc3501.html : mailbox status has these
 			# fields : 
@@ -99,20 +106,106 @@ class Ximapd
 			# the mailbox isn't valid, and the client needs to redownload messages
 			# from the beginning
 			# - UNSEEN : number of messages without the \Seen FLAG
-			mailbox_status = MailboxStatus.new
-			mailbox_status.messages = @heliotropeclient.count "~#{@name}"
-			mailbox_status.recent = @heliotropeclient.count "\\Recent" #this label/FLAG doesn't exist, but I don't know what we can do with it anyway
 
-#cheat : uid should be unique only to a mailbox, but 2 messages can have the same uid if they don't belong to the same mailbox;
-# here we
-# already know what will be the next uid, even if it is not linked to
-# the maailbox
+			mailbox_status = MailboxStatus.new
+			mailbox_status.recent = @heliotropeclient.count "\\Recent" #this label/FLAG doesn't exist, but I don't know what we can do with it anyway
+			#cheat : uid should be unique only to a mailbox, but 2 messages can have the same uid if they don't belong to the same mailbox;
+			# here we already know what will be the next uid, even if it is not linked to the mailbox
 			mailbox_status.uidnext = @heliotropeclient.size + 1 
 
-			mailbox_status.unseen = @heliotropeclient.count "~unread+~#{@name}"
-
+			if @name != "All Mail"
+				mailbox_status.messages = @heliotropeclient.count "~#{@name}"
+				mailbox_status.unseen = @heliotropeclient.count "~unread+~#{@name}"
+			else
+				mailbox_status.messages = @heliotropeclient.size
+				mailbox_status.unseen = @heliotropeclient.count "~unread"
+			end
 			mailbox_status
 		end
+
+		def uid_search(query)
+			if @name != "All Mail"
+				query = "~#{@name}" << query
+			end
+
+			result = @heliotropeclient.search CGI.unescape(query.to_s) # fetches threads
+
+			thread_ids = []
+			result.each do |thread|
+				# iterates through threads to get ids
+				thread_ids << thread.fetch("thread_id").to_i
+			end
+
+			uids = []
+			thread_ids.each do |id|
+				thread = @heliotropeclient.thread id # get thread messages
+				thread.each do |messageinfos|
+					uids <<  messageinfos.first.fetch("message_id") # get message id
+				end
+			end
+
+			uids
+		end
+
+		def fetch(sequence_set)
+			mails = []
+			sequence_set.each do |atom|
+				case atom
+				when Range
+					atom.each do |uid|
+						mails.push(Mail.new(@config, self, uid, uid))
+					end
+				else
+					mails.push(Mail.new(@config, self, atom, atom))
+				end
+			end
+
+			mails
+		end
+
+#def fetch(mailbox, sequence_set)
+      #mails = []
+      #options = {
+        #"properties" => ["uid", "internal-date"],
+        #"sort_method" => Rast::SORT_METHOD_PROPERTY,
+        #"sort_property" => "uid",
+        #"sort_order" => Rast::SORT_ORDER_ASCENDING
+      #}
+      #sequence_set.each do |seq_number|
+        #case seq_number
+        #when Range
+          #options["start_no"] = seq_number.first - 1
+          #if seq_number.last == -1
+            #options["num_items"] = Rast::RESULT_ALL_ITEMS
+          #else
+            #options["num_items"] = seq_number.last - seq_number.first + 1
+          #end
+          #result = search_query(mailbox.query, options)
+          #result.items.each_with_index do |item, i|
+            #mail = IndexedMail.new(@config, mailbox, seq_number.first + i,
+                                   #item.properties[0],
+                                   #item.doc_id, item.properties[1])
+            #mails.push(mail)
+          #end
+        #else
+          #options["start_no"] = seq_number - 1
+          #options["num_items"] = 1
+          #result = search_query(mailbox.query, options)
+          #item = result.items[0]
+          #next if item.nil?
+          #mail = IndexedMail.new(@config, mailbox, seq_number,
+                                  #item.properties[0], item.doc_id,
+                                  #item.properties[1])
+          #mails.push(mail)
+        #end
+      #end
+      #return mails
+    #end
+	
+
+
+
+
 	end
 
   #class SearchBasedMailbox < Mailbox
