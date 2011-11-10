@@ -390,7 +390,7 @@ class Ximapd
 # heliotrope doesn't really have mailboxes, so these functions really
 # belong here. 
 
-		def fetch_rawbody(uid)
+		def fetch_rawbody_for_uid(uid)
 			@heliotropeclient.raw_message uid
 		end
 

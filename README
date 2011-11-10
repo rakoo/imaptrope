@@ -45,3 +45,5 @@ own risks.
 	[X] UID
 	[X] FLAGS
 	[X] INTERNALDATE
+	[x] ENVELOPE
+		; not sure about the format

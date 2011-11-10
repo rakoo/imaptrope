@@ -53,6 +53,8 @@ require "ximapd/command"
 require "ximapd/query"
 require "ximapd/backend"
 require "ximapd/plugin"
+require "ximapd/decoder"
+require "ximapd/person"
 
 now = DateTime.now
 unless defined?(now.to_time)
