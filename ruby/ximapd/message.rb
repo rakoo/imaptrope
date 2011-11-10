@@ -97,7 +97,7 @@ class Message
 	end
 
 	def internal_date
-		@date
+		Time.at(@date)
 	end
 
 	def size
@@ -123,6 +123,17 @@ class Message
 			
 		out
 	end
+
+	def get_header(part=nil)
+# I don't know about this one, should we display only the message
+# header, or the header for each part ? For the moment, I'm being lazy
+
+#puts "part asked : #{part}"
+		@mail_store.fetch_rawbody_for_uid(@uid).split(/\n\n/).first + "\n\n"
+	end
+
+
+
   ## we don't encode any non-text parts here, because json encoding of
   ## binary objects is crazy-talk, and because those are likely to be
   ## big anyways.
