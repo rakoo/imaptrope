@@ -91,9 +91,9 @@ class Ximapd
     def get_header_fields(fields, part = nil)
       pat = "^(?:" + fields.collect { |field|
         Regexp.quote(field)
-      }.join("|") + "):.*(?:\r\n[ \t]+.*)*\r\n"
+      }.join("|") + ")\:.*(?:\n[ \t]+.*)*\n"
       re = Regexp.new(pat, true, "n")
-      return get_header(part).scan(re).join + "\r\n"
+      return get_header(part).scan(re).join + "\n"
     end
 
     def body_structure(extensible)

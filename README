@@ -47,3 +47,6 @@ own risks.
 	[X] INTERNALDATE
 	[x] ENVELOPE
 		; not sure about the format
+	[X] BODY[HEADER]
+	[X] BODY[HEADER.FIELDS(whatever whatever)]
+	[X] RFC822.HEADER

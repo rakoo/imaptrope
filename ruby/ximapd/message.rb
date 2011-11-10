@@ -133,6 +133,14 @@ class Message
 	end
 
 
+	def get_header_fields(fields, part = nil)
+		pat = "^(?:" + fields.collect { |field|
+			Regexp.quote(field)
+		}.join("|") + "):.*(?:\n[ \t]+.*)*\n"
+		re = Regexp.new(pat, true, "n")
+		return get_header(part).scan(re).join + "\r\n"
+	end
+
 
   ## we don't encode any non-text parts here, because json encoding of
   ## binary objects is crazy-talk, and because those are likely to be
