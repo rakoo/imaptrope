@@ -671,6 +671,8 @@ class Ximapd
 
   class RFC822TextFetchAtt
     def fetch(mail)
+			s = mail.body
+			return format("RFC822.TEXT {%d}\r\n%s", s.length, s)
     end
   end
 
@@ -733,6 +735,9 @@ class Ximapd
       when "HEADER.FIELDS"
         s = mail.get_header_fields(@section.header_list, @section.part)
         return format_data(s)
+			when "TEXT"
+        s = mail.body
+				return format_data(s)
       end
     end
 
@@ -1607,6 +1612,8 @@ class Ximapd
         return RFC822HeaderFetchAtt.new
       when /\A(?:RFC822\.SIZE)\z/ni
         return RFC822SizeFetchAtt.new
+      when /\A(?:RFC822\.TEXT)\z/ni
+        return RFC822TextFetchAtt.new
       when /\A(?:BODY)?\z/ni
         token = lookahead
         if token.symbol != T_LBRA

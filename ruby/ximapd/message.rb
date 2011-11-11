@@ -91,7 +91,7 @@ class Message
 	attr_reader :uid
 	def seqno; @uid end
 
-	def flags
+	def flags(get_recent=true)
 		# get flags AND labels
  		@mail_store.fetch_labels_and_flags_for_uid uid 
 	end
@@ -128,12 +128,23 @@ class Message
 # I don't know about this one, should we display only the message
 # header, or the header for each part ? For the moment, I'm being lazy
 
-#puts "part asked : #{part}"
-		@mail_store.fetch_rawbody_for_uid(@uid).split(/\n\n/).first + "\n\n"
+		if part
+			return get_part(part).body.to_s.slice(/.*?\n\n/mn).gsub(/\n/, "\r\n")
+		else
+			@mail_store.fetch_rawbody_for_uid(@uid).split(/\n\n/).first + "\n\n"
+		end
 	end
+
+	def body
+		rawbody = @mail_store.fetch_rawbody_for_uid(@uid).split(/\n\n/)
+		rawbody.shift
+		rawbody.join("\n\n") + "\n\n"
+	end
+		
 
 
 	def get_header_fields(fields, part = nil)
+# Get some of the headers, those specified by fields
 		pat = "^(?:" + fields.collect { |field|
 			Regexp.quote(field)
 		}.join("|") + "):.*(?:\n[ \t]+.*)*\n"
@@ -142,38 +153,10 @@ class Message
 	end
 
 
-  ## we don't encode any non-text parts here, because json encoding of
-  ## binary objects is crazy-talk, and because those are likely to be
-  ## big anyways.
-  def to_h message_id, preferred_type
-    parts = mime_parts(preferred_type).map do |type, fn, cid, content, size|
-      if type =~ /^text\//
-        { :type => type, :filename => fn, :cid => cid, :content => content, :here => true }
-      else
-        { :type => type, :filename => fn, :cid => cid, :size => content.size, :here => false }
-      end
-    end.compact
+	def body_structure(extensible)
+		return body_structure_internal(parsed_mail, extensible)
+	end
 
-    { :from => (from ? from.to_email_address : ""),
-      :to => to.map(&:to_email_address),
-      :cc => cc.map(&:to_email_address),
-      :bcc => bcc.map(&:to_email_address),
-      :subject => subject,
-      :date => date,
-      :refs => refs,
-      :parts => parts,
-      :message_id => message_id,
-      :snippet => snippet,
-      :reply_to => (reply_to ? reply_to.to_email_address : ""),
-
-      :recipient_email => recipient_email,
-      :list_post => list_post,
-      :list_subscribe => list_subscribe,
-      :list_unsubscribe => list_unsubscribe,
-
-      :email_message_id => @msgid,
-    }
-  end
 
   def direct_recipients; to end
   def indirect_recipients; cc + bcc end
@@ -202,17 +185,17 @@ class Message
   ENCRYPTED_MIME_TYPE = %r{multipart/encrypted;.*protocol="?application/pgp-encrypted"?}m
   SIGNATURE_ATTACHMENT_TYPE = %r{application\/pgp-signature\b}
 
-  def snippet
-    mime_parts("text/plain").each do |type, fn, id, content|
-      if (type =~ /text\//) && fn.nil?
-        head = content[0, 1000].split "\n"
-        head.shift while !head.empty? && head.first.empty? || head.first =~ /^\s*>|\-\-\-|(wrote|said):\s*$/
-        snippet = head.join(" ").gsub(/^\s+/, "").gsub(/\s+/, " ")[0, 100]
-        return snippet
-      end
-    end
-    ""
-  end
+  #def snippet
+    #mime_parts("text/plain").each do |type, fn, id, content|
+      #if (type =~ /text\//) && fn.nil?
+        #head = content[0, 1000].split "\n"
+        #head.shift while !head.empty? && head.first.empty? || head.first =~ /^\s*>|\-\-\-|(wrote|said):\s*$/
+        #snippet = head.join(" ").gsub(/^\s+/, "").gsub(/\s+/, " ")[0, 100]
+        #return snippet
+      #end
+    #end
+    #""
+  #end
 
   def has_attachment?
     @has_attachment ||=
@@ -233,7 +216,51 @@ class Message
     @mime_parts[preferred_type] 
   end
 
+	def multipart?
+		mail = parsed_mail
+		return mail.multipart?
+	end
+
+	def mime_header(part)
+		return get_part(part).header.to_s + "\n"
+	end
+
+	def mime_body(part)
+		if part.nil?
+			return to_s
+		else
+			return get_part(part).body.to_s
+		end
+	end
+
+	def to_s
+		@mail_store.fetch_rawbody_for_uid @uid
+	end
+
+
 private
+
+	def get_part(part)
+		part_numbers = part.split(/\./).collect { |i| i.to_i - 1 }
+		return get_part_internal(parsed_mail, part_numbers)
+	end
+
+	def get_part_internal(mail, part_numbers)
+		n = part_numbers.shift
+		if /message\/rfc822/n.match(mail.header.content_type)
+			mail = RMail::Parser.read(mail.body)
+		end
+		if !mail.multipart? && n == 0
+			m = mail
+		else
+			m = mail.part(n)
+		end
+		if part_numbers.empty?
+			return m
+		end
+		return get_part_internal(m, part_numbers)
+	end
+
 
 	def envelope_addrs(addrs)
 		if addrs.nil? || addrs.empty?
@@ -260,6 +287,58 @@ private
 									quoted(name), quoted(adl), quoted(mailbox), quoted(host))
 	end
 
+	def body_structure_internal(mail, extensible)
+		ary = []
+		if /message\/rfc822/n.match(mail.header["content_type"])
+			body = RMail::Parser.read(mail.body)
+			ary.push(quoted("MESSAGE"))
+			ary.push(quoted("RFC822"))
+			ary.push(body_fields(mail, extensible))
+#ary.push(envelope_internal(body))
+			ary.push(body_structure_internal(body, extensible))
+			ary.push(mail.body.to_a.length.to_s)
+		elsif mail.multipart?
+			parts = mail.body.collect { |part|
+				body_structure_internal(part, extensible)
+			}.join
+			ary.push(parts)
+			ary.push(quoted(upcase(mail.header.subtype)))
+			if extensible
+				ary.push(body_ext_mpart(mail))
+			end
+		else
+			ary.push(quoted(upcase(mail.header.media_type)))
+			ary.push(quoted(upcase(mail.header.subtype)))
+			ary.push(body_fields(mail, extensible))
+			if mail.header.media_type == "text"
+				ary.push(mail.body.split(/\n/).length.to_s)
+			end
+			if extensible
+				ary.push(body_ext_1part(mail))
+			end
+		end
+		return "(" + ary.join(" ") + ")"
+	end
+
+	def body_fields(mail, extensible)
+		fields = []
+		params = "(" + mail.header.params("content-type", {}).collect { |k, v|
+			v.gsub!(/\s/,"")
+			format("%s %s", quoted(upcase(k)), quoted(v))
+		}.join(" ") + ")"
+		if params == "()"
+			fields.push("NIL")
+		else
+			fields.push(params)
+		end
+		fields.push("NIL")
+		fields.push("NIL")
+		content_transfer_encoding =
+			(mail.header["content-transfer-encoding"] || "7BIT").to_s.upcase
+		fields.push(quoted(content_transfer_encoding))
+		fields.push(mail.body.gsub(/\n/, "\r\n").length.to_s)
+		return fields.join(" ")
+	end
 
   ## hash the fuck out of all message ids. trust me, you want this.
   def munge_msgid msgid
@@ -302,6 +381,68 @@ private
   end
 
 private
+
+	def parsed_mail
+		if @parsed_mail.nil?
+			@parsed_mail = RMail::Parser.read(@mail_store.fetch_rawbody_for_uid(@uid))
+		end
+		return @parsed_mail
+	end
+
+	def body_ext_mpart(mail)
+		exts = []
+		exts.push(body_fld_param(mail))
+		exts.push(body_fld_dsp(mail))
+		exts.push("NIL")
+	end
+
+	def body_ext_1part(mail)
+		exts = []
+		exts.push("NIL")
+		exts.push(body_fld_dsp(mail))
+		exts.push("NIL")
+		return exts.join(" ")
+	end
+
+	def body_fld_param(mail)
+		unless mail.header.field?("content-type")
+			return "NIL"
+		end
+		params = mail.header.params("content-type", {}).collect { |k, v|
+			v.gsub!(/\s/,"")
+			format("%s %s", quoted(upcase(k)), quoted(v))
+		}
+		if params.empty?
+			return "NIL"
+		else
+			return "(" + params.join(" ") + ")"
+		end
+	end
+
+	def body_fld_dsp(mail)
+		unless mail.header.field?("content-disposition")
+			return "NIL"
+		end
+		params = mail.header.params("content-disposition", {}).collect { |k, v|
+			v.gsub!(/\s/,"")
+			format("%s %s", quoted(upcase(k)), quoted(v))
+		}
+		if params.empty?
+			p = "NIL"
+		else
+			p = "(" + params.join(" ") + ")"
+		end
+		value = mail.header["content-disposition"].sub(/;.*/mn, "")
+		return format("(%s %s)", quoted(upcase(value)), p)
+	end
+
+	def upcase(s)
+		if s.nil?
+			return s
+		end
+		return s.upcase
+	end
+
 
 	def quoted(s)
 		s = (s.nil? ? "" : s)

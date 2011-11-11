@@ -26,7 +26,7 @@ own risks.
 [X] simple authentication
 [ ] secure authentication (SSL)
 
-[x] LIST Command
+[o] LIST Command
 	; FLAGS for each mailbox are not yet spec'd
 [X] STATUS Command
 [X] EXAMINE Command
@@ -45,8 +45,15 @@ own risks.
 	[X] UID
 	[X] FLAGS
 	[X] INTERNALDATE
-	[x] ENVELOPE
+	[o] ENVELOPE
 		; not sure about the format
 	[X] BODY[HEADER]
 	[X] BODY[HEADER.FIELDS(whatever whatever)]
 	[X] RFC822.HEADER
+	[o] BODYSTRUCTURE
+		; not sure about the format
+	[X] RFC822
+	[X] BODY[]
+	[X] BODY[TEXT]
+	[X] RFC822.TEXT
+
