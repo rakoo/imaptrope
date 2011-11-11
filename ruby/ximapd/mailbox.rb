@@ -85,7 +85,7 @@ class Ximapd
 		
 		def initialize(mail_store, name, data)
 			@mail_store = mail_store
-			@name = name
+			@name = name # the label: the mailbox should be accessed with ~label ,  not just with label
 			@data = data
 
 			@heliotropeclient = @data['heliotrope-client']
@@ -114,8 +114,8 @@ class Ximapd
 			mailbox_status.uidnext = @heliotropeclient.size + 1 
 
 			if @name != "All Mail"
-				mailbox_status.messages = @heliotropeclient.count "~#{@name}"
-				mailbox_status.unseen = @heliotropeclient.count "~unread+~#{@name}"
+				mailbox_status.messages = @heliotropeclient.count "#{@name}"
+				mailbox_status.unseen = @heliotropeclient.count "~unread+#{@name}"
 			else
 				mailbox_status.messages = @heliotropeclient.size
 				mailbox_status.unseen = @heliotropeclient.count "~unread"
