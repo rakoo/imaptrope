@@ -116,7 +116,7 @@ class Ximapd
 		MESSAGE_MUTABLE_STATE = Set.new %w(starred unread deleted)
 		MESSAGE_IMMUTABLE_STATE = Set.new %w(attachment signed encrypted draft sent)
 		MESSAGE_STATE = MESSAGE_IMMUTABLE_STATE + MESSAGE_MUTABLE_STATE
-		SPECIAL_MAILBOXES = Hash["\\Seen" => "-~unread", "\\Starred" => "~starred", "\\Draft" => "~draft", "\\Deleted" => "~deleted", "All Mail" => ""]
+		SPECIAL_MAILBOXES = Hash["\\Seen" => "-~unread", "\\Starred" => "~starred", "\\Draft" => "~draft", "\\Deleted" => "~deleted", "All Mail" => "", "INBOX" => "~inbox"]
 			# misses \Answered \Flagged
 			# this Hash relates IMAP keywords with their Heliotrope
 			# counterparts
@@ -231,15 +231,34 @@ class Ximapd
     end
 
     def rename_mailbox(name, new_name)
-			puts "rename label #{name} to #{new_name}"
-#TODO retag all messages
-			#thread_ids = []
-			#count = @heliotropeclient.count name
-			#messageinfos = @heliotropeclient.search name, count
-			#messageinfos.each do |m|
-				#thread_ids << m["thread_id"]
-				#end
+			all_mailboxes = mailboxes
+			p "match : #{all_mailboxes.assoc(new_name).nil?}"
+			if all_mailboxes.assoc(name).nil? # mailbox "name" doesn't exist
+				raise NoMailboxError.new("Can't rename #{name} to #{new_name} : #{name} doesn't exist")
+			end
+			if !all_mailboxes.assoc(new_name).nil? # mailbox "new_name" already exist
+				raise MailboxExistError.new("Can't rename #{name} to #{new_name} : #{new_name} already exists")
+			end
 
+			puts "rename label #{name} to #{new_name}"
+
+			hname = format_label_from_imap_to_heliotrope(name)
+			hnew_name = format_label_from_imap_to_heliotrope(new_name)
+
+			thread_infos = []
+			count = @heliotropeclient.count name
+			messageinfos = @heliotropeclient.search name, count # careful ! labels here are without the ~ !
+			messageinfos.each do |m|
+				new_labels = m["labels"]
+				new_labels += [hnew_name]
+			  new_labels -= [hname]
+				puts "old labels : #{m["labels"]}"
+				puts "new labels : #{new_labels} "
+				@heliotropeclient.set_labels!  m["thread_id"], new_labels
+			end
+
+# prune labels
+			@heliotropeclient.prune_labels!
     end
 
     def get_mailbox_status(mailbox_name, read_only)
@@ -248,7 +267,7 @@ class Ximapd
 				#raise NotSelectableMailboxError.new("can't open #{mailbox_name}: not a selectable mailbox")
 			#end
 
-			mailbox_name = "\~" + mailbox_name unless (/^\~/.match(mailbox_name) or SPECIAL_MAILBOXES.member?(mailbox_name)) # access mailboxes with ~label
+			format_label_to_imap(mailbox_name)
 			mailbox = get_mailbox mailbox_name
 			mailbox_status = mailbox.status
 			mailbox_status.uidvalidity = @uidvalidity_seq.current
@@ -271,33 +290,34 @@ class Ximapd
 			return mailbox_status
     end
 
-    def index_mail(mail, filename)
-      begin
-        @backend.register(mail, filename)
-        s = mail.properties["x-ml-name"]
-        if !s.empty? && mail.properties["mailbox-id"] == 0 &&
-          !@mailbox_db["mailing_lists"].key?(s)
-          mbox_name = get_mailbox_name_from_x_ml_name(s)
-          mailbox_name = format("ml/%s", Net::IMAP.encode_utf7(mbox_name))
-          x_ml_name = mail.properties["x-ml-name"]
-          query = PropertyEqQuery.new("x-ml-name", x_ml_name).to_s
-          begin
-            create_mailbox_internal(mailbox_name, query)
-            mailbox = get_mailbox(mailbox_name)
-            mailbox["list_id"] = s
-            @mailbox_db["mailing_lists"][s] = {
-              "creator_uid" => mail.uid,
-              "mailbox" => mailbox_name
-            }
-          rescue MailboxExistError
-          end
-        end
-      rescue Exception => e
-        @logger.log_exception(e, "backend_mail")
-      end
-    end
+    #def index_mail(mail, filename)
+      #begin
+        #@backend.register(mail, filename)
+        #s = mail.properties["x-ml-name"]
+        #if !s.empty? && mail.properties["mailbox-id"] == 0 &&
+          #!@mailbox_db["mailing_lists"].key?(s)
+          #mbox_name = get_mailbox_name_from_x_ml_name(s)
+          #mailbox_name = format("ml/%s", Net::IMAP.encode_utf7(mbox_name))
+          #x_ml_name = mail.properties["x-ml-name"]
+          #query = PropertyEqQuery.new("x-ml-name", x_ml_name).to_s
+          #begin
+            #create_mailbox_internal(mailbox_name, query)
+            #mailbox = get_mailbox(mailbox_name)
+            #mailbox["list_id"] = s
+            #@mailbox_db["mailing_lists"][s] = {
+              #"creator_uid" => mail.uid,
+              #"mailbox" => mailbox_name
+            #}
+          #rescue MailboxExistError
+          #end
+        #end
+      #rescue Exception => e
+        #@logger.log_exception(e, "backend_mail")
+      #end
+    #end
 
     def get_mailbox(name)
+			format_label_to_imap(name)
 			all_mailboxes = mailboxes
 			mailbox_info = all_mailboxes.assoc(name)
 			if mailbox_info.nil? # mailbox doesn't exist
@@ -330,11 +350,8 @@ class Ximapd
     def delete_mails(mails)
 			puts "trying to delete mails; I will put the label \"to-delete\" on them"
 			for mail in mails
-#TODO : set uid = mail's message_id in heliotrope
-				data = @heliotropeclient.message mail.uid
-				old_labels = Set.new(data["labels"]) - MESSAGE_STATE
-				new_labels = old_labels + Set.new(%w(to-delete))
-				@heliotropeclient.set_labels! data["thread_id"], new_labels
+				thread_id = @heliotropeclient.message(mail.uid)["thread_id"]
+				@heliotropeclient.set_labels! thread_id, ["~deleted"]
 			end
     end
 
@@ -403,8 +420,9 @@ class Ximapd
 
 		def set_labels_and_flags_for_uid(uid, flags)
 			thread_id = @heliotropeclient.message(uid)["thread_id"]
-			flags = flags.split.map do |f| 
-				f.gsub(/^\~/,"") # remove ~ from the beginning of the label
+			out = []
+			flags.split.each do |f|
+				out << format_label_from_imap_to_heliotrope(f)
 			end
 			@heliotropeclient.set_labels! thread_id, flags
 		end
@@ -414,6 +432,16 @@ class Ximapd
 		end
 
     private
+
+		def format_label_to_imap(hlabel)
+			raise NoMailboxError.new("Don't forget the ~ before the name !") if !/^\~/.match(hlabel)
+#"\~" + hlabel unless (/^\~/.match(hlabel) or SPECIAL_MAILBOXES.member?(hlabel)) # access mailboxes with ~label
+		end
+
+
+		def format_label_from_imap_to_heliotrope ilabel
+			ilabel.gsub(/^\~/,"") # remove ~ from the beginning of the label
+		end
 
     def override_commit_new(db)
       def db.commit_new(f)

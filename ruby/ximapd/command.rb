@@ -321,9 +321,9 @@ class Ximapd
         when InvalidQueryError
           msg = "invalid query"
         when MailboxExistError
-          msg = "mailbox already exists"
+          msg = e.message || "mailbox already exists"
         when NoMailboxError
-          msg = "mailbox does not exist"
+          msg = e.message || "mailbox does not exist"
         else
           raise
         end

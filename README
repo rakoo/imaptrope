@@ -61,3 +61,5 @@ own risks.
 	; CAREFUL : This modifies your labels, so use with care. It works, but
 	who knows. Moreover, you MUST ALWAYS conlider that <label> in
 	heliotrope translates as ~<label> in the IMAP interface
+
+[X] RENAME
