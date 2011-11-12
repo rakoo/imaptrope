@@ -193,7 +193,6 @@ class Ximapd
     end
 
     def exec
-			puts "login : #{@session.secure?}"
 # don't use secure session for now
 #if @session.secure? &&
 			if @userid == @config["user"] && @password == @config["password"]
@@ -899,19 +898,17 @@ class Ximapd
       @session.synchronize do
         mailbox = @session.get_current_mailbox
         mails = fetch_mails(mailbox, @sequence_set)
-        @mail_store.mailbox_db.transaction(true) do
-          dest_mailbox = @mail_store.get_mailbox(@mailbox_name)
-        end
+				dest_mailbox = @mail_store.get_mailbox(@mailbox_name)
       end
       override = {"x-ml-name" => dest_mailbox["list_id"] || ""}
       for mail in mails
         @session.synchronize do
-          @mail_store.plugins.fire_event(:on_copy, mail, dest_mailbox)
+#@mail_store.plugins.fire_event(:on_copy, mail, dest_mailbox)
           uid = @mail_store.import_mail(mail.to_s, dest_mailbox.name,
                                         mail.flags(false), mail.internal_date,
                                         override)
           dest_mail = dest_mailbox.uid_fetch([uid]).first
-          @mail_store.plugins.fire_event(:on_copied, mail, dest_mail)
+#@mail_store.plugins.fire_event(:on_copied, mail, dest_mail)
         end
       end
       n = @mail_store.get_mailbox_status(@mailbox_name, true).messages

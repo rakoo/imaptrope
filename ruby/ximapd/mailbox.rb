@@ -142,21 +142,9 @@ class Ximapd
 		end
 
 		def fetch(sequence_set)
-			mails = []
-			sequence_set.each do |atom|
-				case atom
-				when Range
-					atom.each do |uid|
-						messageinfos = @heliotropeclient.message uid
-						mails.push(Message.new(messageinfos, @mail_store))
-					end
-				else
-					messageinfos = @heliotropeclient.message atom
-					mails.push(Message.new(messageinfos, @mail_store))
-				end
-			end
-
-			mails
+			# same technique for all mailboxes, so the method should be
+			# defined in mail-store.rb
+			@mail_store.fetch_mails(sequence_set)
 		end
 
 		def uid_fetch(sequence_set)

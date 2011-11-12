@@ -466,6 +466,24 @@ class Ximapd
 			Time.at(@heliotropeclient.message(uid).fetch("date"))
 		end
 
+		def fetch_mails(sequence_set)
+			mails = []
+			sequence_set.each do |atom|
+				case atom
+				when Range
+					atom.each do |uid|
+						messageinfos = @heliotropeclient.message uid
+						mails.push(Message.new(messageinfos, self))
+					end
+				else
+					messageinfos = @heliotropeclient.message atom
+					mails.push(Message.new(messageinfos, self))
+				end
+			end
+			mails
+		end
+
+
     private
 
 		def format_label_to_imap!(label)
