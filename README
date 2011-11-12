@@ -17,6 +17,10 @@ USAGE
 
 $ ruby -Iruby -Ibackends -I/path/to/heliotrope-client ximapd --start --debug
 
+If you want to test it without destructing everything, you should try
+the tag "safe" and not further, because those implement destructive
+(STORE, RENAME, DELETE, ...) IMAP functions.
+
 WHAT WORKS FOR NOW
 
 NOTE : When I say it works, I don't mean it's totally safe. Use at your
