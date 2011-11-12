@@ -901,16 +901,15 @@ class Ximapd
 				dest_mailbox = @mail_store.get_mailbox(@mailbox_name)
       end
       override = {"x-ml-name" => dest_mailbox["list_id"] || ""}
-      for mail in mails
-        @session.synchronize do
+			@session.synchronize do
 #@mail_store.plugins.fire_event(:on_copy, mail, dest_mailbox)
-          uid = @mail_store.import_mail(mail.to_s, dest_mailbox.name,
-                                        mail.flags(false), mail.internal_date,
-                                        override)
-          dest_mail = dest_mailbox.uid_fetch([uid]).first
+          #uid = @mail_store.import_mail(mail.to_s, dest_mailbox.name,
+                                        #mail.flags(false), mail.internal_date,
+                                        #override)
+          #dest_mail = dest_mailbox.uid_fetch([uid]).first
 #@mail_store.plugins.fire_event(:on_copied, mail, dest_mail)
-        end
-      end
+				@mail_store.copy_mails_to_mailbox(mails, dest_mailbox)
+			end
       n = @mail_store.get_mailbox_status(@mailbox_name, true).messages
       @session.push_queued_response(@mailbox_name, "#{n} EXISTS")
       send_tagged_ok

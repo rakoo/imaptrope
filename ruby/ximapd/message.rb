@@ -92,13 +92,15 @@ class Message
 	def seqno; @uid end
 
 	def flags(get_recent=true)
-		# get flags AND labels
- 		@mail_store.fetch_labels_and_flags_for_uid @uid 
+		# get flags AND labels as a string
+ 		@mail_store.fetch_labels_and_flags_for_uid(@uid).join(" ")
 	end
 
+	def labels; flags end
+
 	def flags=(flags)
-		# set flags AND labels
-		@mail_store.set_labels_and_flags_for_uid @uid, flags
+		# set flags AND labels with flags a string
+		@mail_store.set_labels_and_flags_for_uid(@uid, flags.split)
 	end
 
 	def internal_date

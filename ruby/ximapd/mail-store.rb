@@ -116,10 +116,19 @@ class Ximapd
 		MESSAGE_MUTABLE_STATE = Set.new %w(starred unread deleted)
 		MESSAGE_IMMUTABLE_STATE = Set.new %w(attachment signed encrypted draft sent)
 		MESSAGE_STATE = MESSAGE_IMMUTABLE_STATE + MESSAGE_MUTABLE_STATE
-		SPECIAL_MAILBOXES = Hash["\\Starred" => "starred", "\\Draft" => "draft", "\\Deleted" => "deleted", "All Mail" => "", "INBOX" => "inbox"]
-			# misses \Answered \Flagged \Seen (the latter is problematic)
-			# this Hash relates IMAP keywords with their Heliotrope
-			# counterparts
+		SPECIAL_MAILBOXES = Hash[
+			"\\Seen" => nil,
+			"\\Answered" => nil,
+			"\\Flagged" => nil,
+			"\\Starred" => "starred",
+		 	"\\Draft" => "draft",
+		 	"\\Deleted" => "deleted",
+		 	"All Mail" => nil,
+		 	"INBOX" => "inbox"
+		]
+		# misses \Answered \Flagged \Seen (the latter is problematic)
+		# this Hash relates IMAP keywords with their Heliotrope
+		# counterparts
 
 		attr_reader :heliotropeclient
     attr_reader :config, :path, :mailbox_db, :mailbox_db_path
@@ -212,12 +221,18 @@ class Ximapd
 
 			out = []
 			labels.each do |label|
-				out << ["\~"+label, ""] 
+				if MESSAGE_IMMUTABLE_STATE.member?(label)
+					next
+				elsif SPECIAL_MAILBOXES.value?(label)
+					out << [SPECIAL_MAILBOXES.key(label), ""] # use the IMAP special name, not the heliotrope one
+				else
+				out << ["\~"+label, ""]
+				end
 			end
 			SPECIAL_MAILBOXES.keys.each do |m|
 				out << [m, ""]
 			end
-			out
+			out.uniq
     end
 
     def create_mailbox(name, query = nil)
@@ -234,7 +249,7 @@ class Ximapd
 
     def delete_mailbox(name)
 			format_label_to_imap!(name)
-			raise MailboxError.new("Can't delete a special mailbox") if (SPECIAL_MAILBOXES.key?(name))
+			raise MailboxError.new("Can't delete a special mailbox") if (SPECIAL_MAILBOXES.key?(name) or MESSAGE_IMMUTABLE_STATE.include?(name))
 
 			all_mailboxes = mailboxes
 			if all_mailboxes.assoc(name).nil? 
@@ -266,7 +281,9 @@ class Ximapd
     def rename_mailbox(name, new_name)
 			# TODO if a label has sublabels, there is a special treatment
 
-			raise MailboxError.new("Can't rename a special mailbox") if (SPECIAL_MAILBOXES.key?(name) or SPECIAL_MAILBOXES.key?(new_name))
+		 	if (SPECIAL_MAILBOXES.key?(name) or SPECIAL_MAILBOXES.key?(new_name) or MESSAGE_IMMUTABLE_STATE.subset?(Set.new [name, new_name]))
+				raise MailboxError.new("Can't rename a special mailbox")
+			end
 
 			all_mailboxes = mailboxes
 			if all_mailboxes.assoc(name).nil? # mailbox "name" doesn't exist
@@ -288,8 +305,6 @@ class Ximapd
 				new_labels = m["labels"]
 				new_labels += [hnew_name]
 			  new_labels -= [hname] unless hname == "inbox" # if the old label is inbox, duplicate instead of moving : RFC
-				puts "old labels : #{m["labels"]}"
-				puts "new labels : #{new_labels} "
 				@heliotropeclient.set_labels!  m["thread_id"], new_labels
 			end
 
@@ -390,6 +405,25 @@ class Ximapd
 			end
     end
 
+		def copy_mails_to_mailbox(mails, mailbox)
+			mailbox_name = mailbox.name
+			format_label_to_imap!(mailbox_name)
+			all_mailboxes = mailboxes
+			raise MailboxExistError.new("[TRYCREATE] #{mailbox_name} doesn't exist") if all_mailboxes.assoc(mailbox_name).nil? 
+			raise NotSelectableMailboxError.new("#{mailbox_name} is not selectable") if all_mailboxes.assoc(mailbox_name).include?("\\Noselect")
+
+			puts "copy mails to #{mailbox_name}"
+
+			hlabel = format_label_from_imap_to_heliotrope!(mailbox_name)
+			mails.each do |m|
+				new_labels = m.labels.split(' ') + [hlabel]
+				uid = m.uid
+				set_labels_and_flags_for_uid(uid, new_labels)
+			end
+		end
+
+
+
     def open_backend(*args, &block)
       synchronize do
         @backend.open(*args, &block)
@@ -445,20 +479,19 @@ class Ximapd
 # body. Maybe add a "complete" arg to the fetch method to fetch only the
 # messageinfos ?
 		def fetch_labels_and_flags_for_uid(uid)
-			out = ""
+			out = []
 			@heliotropeclient.message(uid).fetch("labels").each do |l|
-				out << "~#{l}" << " "
+				out << "~#{l}" 
 			end
 			out << "\\Seen" unless out.include?("~unread")
-			out.strip
+			out.compact
 		end
 
 		def set_labels_and_flags_for_uid(uid, flags)
 			thread_id = @heliotropeclient.message(uid)["thread_id"]
-			out = []
-			flags.split.each do |f|
-				out << format_label_from_imap_to_heliotrope!(f)
-			end
+			flags.map! do |f|
+				format_label_from_imap_to_heliotrope!(f)
+			end.compact!
 			@heliotropeclient.set_labels! thread_id, flags
 		end
 
@@ -487,7 +520,7 @@ class Ximapd
     private
 
 		def format_label_to_imap!(label)
-			unless /^\~/.match(label) or SPECIAL_MAILBOXES.include?(label)
+			unless /^\~/.match(label) or SPECIAL_MAILBOXES.key?(label)
 				raise NoMailboxError.new("Don't forget the ~ before the name !")
 			end
 #"\~" + hlabel unless (/^\~/.match(hlabel) or SPECIAL_MAILBOXES.member?(hlabel)) # access mailboxes with ~label
