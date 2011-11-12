@@ -163,19 +163,19 @@ class Ximapd
 
     def lock
       mon_enter
-      #if @lock_count == 0
-        #@lock.flock(File::LOCK_EX)
+      if @lock_count == 0
+        @lock.flock(File::LOCK_EX)
         #@backend.standby
-      #end
+      end
       @lock_count += 1
     end
 
     def unlock
       @lock_count -= 1
-      #if @lock_count == 0 && !@lock.closed?
+      if @lock_count == 0 && !@lock.closed?
         #@backend.relax
-        #@lock.flock(File::LOCK_UN)
-      #end
+        @lock.flock(File::LOCK_UN)
+      end
       mon_exit
     end
 
