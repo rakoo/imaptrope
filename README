@@ -66,4 +66,9 @@ own risks.
 	who knows. Moreover, you MUST ALWAYS conlider that <label> in
 	heliotrope translates as ~<label> in the IMAP interface
 
-[X] RENAME
+[o] RENAME
+	; special treatment not taken into account if a mailbox has submailboxes
+
+[o] DELETE
+	; special treatment not taken into account if a mailbox has the
+	\Noselect flag or if it has submailboxes
