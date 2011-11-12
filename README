@@ -63,12 +63,17 @@ own risks.
 
 [X] STORE
 	; CAREFUL : This modifies your labels, so use with care. It works, but
-	who knows. Moreover, you MUST ALWAYS conlider that <label> in
-	heliotrope translates as ~<label> in the IMAP interface
+	; who knows. Moreover, you MUST ALWAYS conlider that <label> in
+	; heliotrope translates as ~<label> in the IMAP interface
 
 [o] RENAME
 	; special treatment not taken into account if a mailbox has submailboxes
 
 [o] DELETE
 	; special treatment not taken into account if a mailbox has the
-	\Noselect flag or if it has submailboxes
+	; \Noselect flag or if it has submailboxes
+
+[o] CREATE
+	; a mailbox cannot be created, you just have to label a mail with the
+	; new label. IMAP will answer OK when you ask it to create a new
+	; mailbox

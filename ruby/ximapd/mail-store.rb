@@ -221,8 +221,12 @@ class Ximapd
     end
 
     def create_mailbox(name, query = nil)
-			raise MailboxError.new("Can't create a special mailbox") if (SPECIAL_MAILBOXES.key?(name))
-      puts "trying to create a new mailbox; impossible, just label a mail with a new label"
+			all_mailboxes = mailboxes
+			format_label_to_imap!(name)
+			unless all_mailboxes.assoc(name).nil? 
+				raise MailboxExistError.new("#{name} already exists")
+			end
+			puts "asked for a create, but it's useless"
     end
 
 
@@ -465,7 +469,9 @@ class Ximapd
     private
 
 		def format_label_to_imap!(label)
-			raise NoMailboxError.new("Don't forget the ~ before the name !") if !/^\~/.match(label)
+			unless /^\~/.match(label) or SPECIAL_MAILBOXES.include?(label)
+				raise NoMailboxError.new("Don't forget the ~ before the name !")
+			end
 #"\~" + hlabel unless (/^\~/.match(hlabel) or SPECIAL_MAILBOXES.member?(hlabel)) # access mailboxes with ~label
 		end
 
