@@ -116,8 +116,10 @@ class Ximapd
 		MESSAGE_MUTABLE_STATE = Set.new %w(starred unread deleted)
 		MESSAGE_IMMUTABLE_STATE = Set.new %w(attachment signed encrypted draft sent)
 		MESSAGE_STATE = MESSAGE_IMMUTABLE_STATE + MESSAGE_MUTABLE_STATE
-		SPECIAL_MAILBOXES = Hash["\\Seen" => "-~unread", "\\Starred" => "~starred", "\\Draft" => "~draft", "\\Deleted" => "~deleted"]
+		SPECIAL_MAILBOXES = Hash["\\Seen" => "-~unread", "\\Starred" => "~starred", "\\Draft" => "~draft", "\\Deleted" => "~deleted", "All Mail" => ""]
 			# misses \Answered \Flagged
+			# this Hash relates IMAP keywords with their Heliotrope
+			# counterparts
 
 		attr_reader :heliotropeclient
     attr_reader :config, :path, :mailbox_db, :mailbox_db_path
@@ -201,7 +203,6 @@ class Ximapd
 
     def mailboxes
 			labels = @heliotropeclient.labels
-			puts "asked for mailboxes ; returning with labels : #{labels.join " "}"
 
 			#Format to return: 
 			#[
@@ -247,7 +248,7 @@ class Ximapd
 				#raise NotSelectableMailboxError.new("can't open #{mailbox_name}: not a selectable mailbox")
 			#end
 
-			name = "\~" + name unless /^\~/.match(name) or SPECIAL_MAILBOXES.member?(name) # access mailboxes with ~label
+			mailbox_name = "\~" + mailbox_name unless (/^\~/.match(mailbox_name) or SPECIAL_MAILBOXES.member?(mailbox_name)) # access mailboxes with ~label
 			mailbox = get_mailbox mailbox_name
 			mailbox_status = mailbox.status
 			mailbox_status.uidvalidity = @uidvalidity_seq.current
@@ -297,6 +298,14 @@ class Ximapd
     end
 
     def get_mailbox(name)
+			all_mailboxes = mailboxes
+			mailbox_info = all_mailboxes.assoc(name)
+			if mailbox_info.nil? # mailbox doesn't exist
+				raise MailboxExistError.new("Can't select #{name} : this mailbox doesn't exist")
+			elsif /\\Noselect/.match(mailbox_info.last) # mailbox isn't selectable
+				raise NotSelectableMailboxError.new("Can't select #{name} : not a selectable mailbox")
+			end
+
 			data = Hash.new
 			data['heliotrope-client'] = @heliotropeclient
 			return HeliotropeFakeMailbox.new(self, name, data)

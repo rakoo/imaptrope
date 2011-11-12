@@ -114,7 +114,7 @@ class Ximapd
 			mailbox_status.uidnext = @heliotropeclient.size + 1 
 
 
-			mailbox_prestatus
+			mailbox_status
 		end
 
 		def uid_search(query)
