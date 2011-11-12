@@ -113,19 +113,13 @@ class Ximapd
 			# here we already know what will be the next uid, even if it is not linked to the mailbox
 			mailbox_status.uidnext = @heliotropeclient.size + 1 
 
-			if @name != "All Mail"
-				mailbox_status.messages = @heliotropeclient.count "#{@name}"
-				mailbox_status.unseen = @heliotropeclient.count "~unread+#{@name}"
-			else
-				mailbox_status.messages = @heliotropeclient.size
-				mailbox_status.unseen = @heliotropeclient.count "~unread"
-			end
-			mailbox_status
+
+			mailbox_prestatus
 		end
 
 		def uid_search(query)
 			if @name != "All Mail"
-				query = "~#{@name}" << query
+				query = "#{@name}" << query
 			end
 
 			result = @heliotropeclient.search CGI.unescape(query.to_s) # fetches threads
@@ -140,7 +134,7 @@ class Ximapd
 			thread_ids.each do |id|
 				thread = @heliotropeclient.thread id # get thread messages
 				thread.each do |messageinfos|
-					uids <<  messageinfos.first.fetch("message_id") # get message id
+					uids <<  messageinfos.first["message_id"] # get message id
 				end
 			end
 
@@ -163,6 +157,11 @@ class Ximapd
 			end
 
 			mails
+		end
+
+		def uid_fetch(sequence_set)
+			# same as fetch, because uids and seq_no are the same
+			fetch sequence_set
 		end
 
 #def fetch(mailbox, sequence_set)

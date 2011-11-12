@@ -24,7 +24,8 @@
 # SUCH DAMAGE.
 
 require "heliotrope-client"
-require "heliotrope-backend"
+#require "heliotrope-backend"
+require "set"
 
 class Ximapd
   DEFAULT_CHARSET = "iso-2022-jp"
@@ -113,8 +114,10 @@ class Ximapd
     include MonitorMixin
 
 		MESSAGE_MUTABLE_STATE = Set.new %w(starred unread deleted)
-		MESSAGE_IMMUTABLE_STATE = Set.new %w(attachment signed encrypteu draft sent)
+		MESSAGE_IMMUTABLE_STATE = Set.new %w(attachment signed encrypted draft sent)
 		MESSAGE_STATE = MESSAGE_IMMUTABLE_STATE + MESSAGE_MUTABLE_STATE
+		SPECIAL_MAILBOXES = Hash["\\Seen" => "-~unread", "\\Starred" => "~starred", "\\Draft" => "~draft", "\\Deleted" => "~deleted"]
+			# misses \Answered \Flagged
 
 		attr_reader :heliotropeclient
     attr_reader :config, :path, :mailbox_db, :mailbox_db_path
@@ -128,63 +131,24 @@ class Ximapd
       @logger = @config["logger"]
 			@heliotropeclient = HeliotropeClient.new "http://localhost:8042"
 # Override evrything, we only want it to work with heliotrope
-			@backend = HeliotropeBackend.new
+#@backend = HeliotropeBackend.new
 
 
 
 
       @path = File.expand_path(@config["data_dir"])
       FileUtils.mkdir_p(@path)
-      #FileUtils.mkdir_p(File.expand_path("mails", @path))
-      #uid_seq_path = File.expand_path("uid.seq", @path)
-      #@uid_seq = Sequence.new(uid_seq_path)
       uidvalidity_seq_path = File.expand_path("uidvalidity.seq", @path)
       @uidvalidity_seq = Sequence.new(uidvalidity_seq_path)
-      #mailbox_id_seq_path = File.expand_path("mailbox_id.seq", @path)
-      #@mailbox_id_seq = Sequence.new(mailbox_id_seq_path, 0)
-      #@mailbox_db_path = File.expand_path("mailbox.db", @path)
-      #case @config["db_type"].to_s.downcase
-      #when "pstore"
-        #@mailbox_db = PStore.new(@mailbox_db_path)
-      #else
-        #@mailbox_db = YAML::Store.new(@mailbox_db_path)
-      #end
-      #override_commit_new(@mailbox_db)
-      #@mail_parser = RMail::Parser.new
-      #@default_charset = @config["default_charset"] || DEFAULT_CHARSET
-      #@ml_header_fields =
-        #@config["ml_header_fields"] || DEFAULT_ML_HEADER_FIELDS
-      #@last_peeked_uids = {}
-      #@backend_ref_count = 0
+
       lock_path = File.expand_path("lock", @path)
       @lock = File.open(lock_path, "w+")
       @lock_count = 0
-#backend_name = @config["backend"] || "Rast"
-#lib = File.expand_path(backend_name.downcase, Backend.directory)
-#require lib
-#backend_class = Ximapd.const_get(backend_name + "Backend")
-#@backend = backend_class.new(self)
-      #synchronize do
-        if @uidvalidity_seq.current.nil?
-          @uidvalidity_seq.current = 1
-        end
-        #if @mailbox_id_seq.current.nil?
-          #@mailbox_id_seq.current = 0
-        #end
-        #@mailbox_db.transaction do
-          #@mailbox_db["mailboxes"] ||= DEFAULT_MAILBOXES.dup
-          #@mailbox_db["mailing_lists"] ||= {}
-          #convert_old_mailbox_db
-        #end
-        #@backend.setup
-        #begin
-          #create_mailbox("INBOX")
-        #rescue MailboxExistError
-        #end
-        #@mailbox_db.transaction do
-          #@plugins = Plugin.create_plugins(@config, self)
-        #end
-      #end
+
+			if @uidvalidity_seq.current.nil?
+				@uidvalidity_seq.current = 1
+			end
+
     end
 
     def close
@@ -192,24 +156,24 @@ class Ximapd
     end
 
     def teardown
-      @backend.teardown
+#@backend.teardown
     end
 
     def lock
       mon_enter
-      if @lock_count == 0
-        @lock.flock(File::LOCK_EX)
-        @backend.standby
-      end
+      #if @lock_count == 0
+        #@lock.flock(File::LOCK_EX)
+        #@backend.standby
+      #end
       @lock_count += 1
     end
 
     def unlock
       @lock_count -= 1
-      if @lock_count == 0 && !@lock.closed?
-        @backend.relax
-        @lock.flock(File::LOCK_UN)
-      end
+      #if @lock_count == 0 && !@lock.closed?
+        #@backend.relax
+        #@lock.flock(File::LOCK_UN)
+      #end
       mon_exit
     end
 
@@ -247,9 +211,11 @@ class Ximapd
 
 			out = []
 			labels.each do |label|
-				out << [label, ""] 
+				out << ["\~"+label, ""] 
 			end
-			out << ["All Mail", ""] #Mailbox that contains all mails
+			SPECIAL_MAILBOXES.keys.each do |m|
+				out << [m, ""]
+			end
 			out
     end
 
@@ -265,7 +231,13 @@ class Ximapd
 
     def rename_mailbox(name, new_name)
 			puts "rename label #{name} to #{new_name}"
-#TODO
+#TODO retag all messages
+			#thread_ids = []
+			#count = @heliotropeclient.count name
+			#messageinfos = @heliotropeclient.search name, count
+			#messageinfos.each do |m|
+				#thread_ids << m["thread_id"]
+				#end
 
     end
 
@@ -275,12 +247,26 @@ class Ximapd
 				#raise NotSelectableMailboxError.new("can't open #{mailbox_name}: not a selectable mailbox")
 			#end
 
+			name = "\~" + name unless /^\~/.match(name) or SPECIAL_MAILBOXES.member?(name) # access mailboxes with ~label
 			mailbox = get_mailbox mailbox_name
 			mailbox_status = mailbox.status
 			mailbox_status.uidvalidity = @uidvalidity_seq.current
 			#unless read_only
 				#@last_peeked_uids[mailbox_name] = @uid_seq.current.to_i
 			#end
+
+			if mailbox_name == "All Mail"
+				mailbox_status.messages = @heliotropeclient.size
+				mailbox_status.unseen = @heliotropeclient.count "~unread"
+			elsif SPECIAL_MAILBOXES.member?(mailbox_name)
+				mailbox_status.messages = @heliotropeclient.count "#{SPECIAL_MAILBOXES[mailbox_name]}"
+				mailbox_status.unseen = @heliotropeclient.count "~unread+#{SPECIAL_MAILBOXES[mailbox_name]}"
+			else
+				mailbox_status.messages = @heliotropeclient.count "#{@name}"
+				mailbox_status.unseen = @heliotropeclient.count "~unread+#{@name}"
+			end
+
+
 			return mailbox_status
     end
 
@@ -394,6 +380,9 @@ class Ximapd
 			@heliotropeclient.raw_message uid
 		end
 
+# TODO : those 2 methods fetch the whole wessage, but we don't need the
+# body. Maybe add a "complete" arg to the fetch method to fetch only the
+# messageinfos ?
 		def fetch_labels_and_flags_for_uid(uid)
 			out = ""
 			@heliotropeclient.message(uid).fetch("labels").each do |l|
@@ -401,6 +390,14 @@ class Ximapd
 			end
 			out << "\\Seen" unless out.include?("~unread")
 			out.strip
+		end
+
+		def set_labels_and_flags_for_uid(uid, flags)
+			thread_id = @heliotropeclient.message(uid)["thread_id"]
+			flags = flags.split.map do |f| 
+				f.gsub(/^\~/,"") # remove ~ from the beginning of the label
+			end
+			@heliotropeclient.set_labels! thread_id, flags
 		end
 
 		def fetch_date_for_uid(uid)

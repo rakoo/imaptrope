@@ -57,3 +57,7 @@ own risks.
 	[X] BODY[TEXT]
 	[X] RFC822.TEXT
 
+[X] STORE
+	; CAREFUL : This modifies your labels, so use with care. It works, but
+	who knows. Moreover, you MUST ALWAYS conlider that <label> in
+	heliotrope translates as ~<label> in the IMAP interface

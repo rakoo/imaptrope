@@ -790,9 +790,9 @@ class Ximapd
           flags = nil
           @session.synchronize do
             flags = @att.get_new_flags(mail)
-            for plugin in @mail_store.plugins
-              flags = plugin.on_store(mail, @att, flags)
-            end
+            #for plugin in @mail_store.plugins
+              #flags = plugin.on_store(mail, @att, flags)
+            #end
             mail.flags = flags
             flags = mail.flags
           end

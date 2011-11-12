@@ -93,7 +93,12 @@ class Message
 
 	def flags(get_recent=true)
 		# get flags AND labels
- 		@mail_store.fetch_labels_and_flags_for_uid uid 
+ 		@mail_store.fetch_labels_and_flags_for_uid @uid 
+	end
+
+	def flags=(flags)
+		# set flags AND labels
+		@mail_store.set_labels_and_flags_for_uid @uid, flags
 	end
 
 	def internal_date
