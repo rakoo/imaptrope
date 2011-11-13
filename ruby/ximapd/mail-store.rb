@@ -140,7 +140,7 @@ class Ximapd
       super()
       @config = config
       @logger = @config["logger"]
-			@heliotropeclient = HeliotropeClient.new "http://localhost:8042"
+			@heliotropeclient = HeliotropeClient.new "http://localhost:8043"
 # Override evrything, we only want it to work with heliotrope
 #@backend = HeliotropeBackend.new
 
@@ -159,6 +159,10 @@ class Ximapd
 			if @uidvalidity_seq.current.nil?
 				@uidvalidity_seq.current = 1
 			end
+
+			# this is used to fake the imap client exists so that it can
+			# select it
+			@fakemailboxes = []
 
     end
 
@@ -198,16 +202,17 @@ class Ximapd
     end
 
     def write_last_peeked_uids
-      return if @last_peeked_uids.empty?
-      @mailbox_db.transaction do
-        @last_peeked_uids.each do |name, uid|
-          mailbox = @mailbox_db["mailboxes"][name]
-          if mailbox && mailbox["last_peeked_uid"] < uid
-            mailbox["last_peeked_uid"] = uid
-          end
-        end
-        @last_peeked_uids.clear
-      end
+# don't need this
+      #return if @last_peeked_uids.empty?
+      #@mailbox_db.transaction do
+        #@last_peeked_uids.each do |name, uid|
+          #mailbox = @mailbox_db["mailboxes"][name]
+          #if mailbox && mailbox["last_peeked_uid"] < uid
+            #mailbox["last_peeked_uid"] = uid
+          #end
+        #end
+        #@last_peeked_uids.clear
+      #end
     end
 
     def mailboxes
@@ -232,6 +237,7 @@ class Ximapd
 			SPECIAL_MAILBOXES.keys.each do |m|
 				out << [m, ""]
 			end
+			out << @fakemailboxes.flatten
 			out.uniq
     end
 
@@ -241,7 +247,7 @@ class Ximapd
 			unless all_mailboxes.assoc(name).nil? 
 				raise MailboxExistError.new("#{name} already exists")
 			end
-			puts "asked for a create, but it's useless"
+			@fakemailboxes << [name, ""]
     end
 
 
@@ -414,15 +420,39 @@ class Ximapd
 
 			puts "copy mails to #{mailbox_name}"
 
+			out = []
+
 			hlabel = format_label_from_imap_to_heliotrope!(mailbox_name)
 			mails.each do |m|
 				new_labels = m.labels.split(' ') + [hlabel]
 				uid = m.uid
+				out << uid
 				set_labels_and_flags_for_uid(uid, new_labels)
 			end
+
+			out
 		end
 
 
+		def append_mail(message, mailbox_name, flags)
+			all_mailboxes = mailboxes
+			format_label_to_imap! mailbox_name
+			raise MailboxExistError.new("[TRYCREATE] #{mailbox_name} doesn't exist") if all_mailboxes.assoc(mailbox_name).nil?
+
+			flags = (Set.new(flags) - MESSAGE_MUTABLE_STATE).to_a.compact
+			flags.map! do |f|
+				format_label_from_imap_to_heliotrope!(f)
+			end
+
+
+			hlabel = format_label_from_imap_to_heliotrope!(mailbox_name)
+			flags = (flags + [hlabel]).compact.uniq
+
+			#construct the message body. We need a message_id
+			validated_message = Message.validate(message)
+			
+			@heliotropeclient.add_message(validated_message, :labels => flags)
+		end
 
     def open_backend(*args, &block)
       synchronize do
@@ -529,7 +559,7 @@ class Ximapd
 
 		def format_label_from_imap_to_heliotrope!(ilabel)
 			if SPECIAL_MAILBOXES.key?(ilabel)
-				return SPECIAL_MAILBOXES[ilabel]
+				return SPECIAL_MAILBOXES.fetch(ilabel)
 			else
 				return ilabel.gsub(/^\~/,"") # remove ~ from the beginning of the label
 			end

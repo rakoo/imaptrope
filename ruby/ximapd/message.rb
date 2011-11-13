@@ -45,42 +45,7 @@ class Message
 		@thread_id = messageinfos["thread_id"] # we should check for it, because it can also change
 
 
-    #@m = RMail::Parser.read @rawbody
-
-    #@msgid = find_msgids(decode_header(validate_field(:message_id, @m.header["message-id"]))).first
-    ### this next error happens if we have a field, but we can't find a <something> in it
-    #raise InvalidMessageError, "can't parse msgid: #{@m.header['message-id']}" unless @msgid
-    #@safe_msgid = munge_msgid @msgid
-
-    #@from = Person.from_string decode_header(validate_field(:from, @m.header["from"]))
-    #@date = begin
-      #Time.parse(validate_field(:date, @m.header["date"])).to_i
-    #rescue ArgumentError
-      #puts "warning: invalid date field #{@m.header['date']}"
-      #0
-    #end
-
-    #@to = Person.many_from_string decode_header(@m.header["to"])
-    #@cc = Person.many_from_string decode_header(@m.header["cc"])
-    #@bcc = Person.many_from_string decode_header(@m.header["bcc"])
-    #@subject = decode_header @m.header["subject"]
-    #@reply_to = Person.from_string @m.header["reply-to"]
-
-    #@refs = find_msgids decode_header(@m.header["references"] || "")
-    #in_reply_to = find_msgids decode_header(@m.header["in-reply-to"] || "")
-    #@refs += in_reply_to unless @refs.member? in_reply_to.first
-    #@safe_refs = @refs.map { |r| munge_msgid(r) }
-
-    ### various other headers that you don't think we will need until we
-    ### actually need them.
-
-    ### this is sometimes useful for determining who was the actual target of
-    ### the email, in the case that someone has aliases
-    #@recipient_email = @m.header["envelope-to"] || @m.header["x-original-to"] || @m.header["delivered-to"]
-
-    #@list_subscribe = @m.header["list-subscribe"]
-    #@list_unsubscribe = @m.header["list-unsubscribe"]
-    #@list_post = @m.header["list-post"] || @m.header["x-mailing-list"]
+    
 
     self
   end
@@ -244,6 +209,75 @@ class Message
 		@mail_store.fetch_rawbody_for_uid @uid
 	end
 
+	def self.validate(rawbody)
+		m = RMail::Parser.read rawbody
+		body = m.header[""] # I don't understand ...
+
+		# add a Message-Id field if necessary
+    msgid = find_msgids(decode_header(m.header["message-id"])).first
+
+		# add a Date if necessary
+    date = begin
+			Time.parse(m.header["date"]).to_s
+		rescue
+			nil
+		end
+
+		# exit if no from
+		from = Person.from_string decode_header(m.header["from"])
+		raise "Can't find from" if from.blank?
+		
+		# exit if no to
+    to = Person.many_from_string decode_header(m.header["to"])
+		raise "Can't find to" if to.blank?
+
+    #cc = Person.many_from_string decode_header(m.header["cc"])
+    #bcc = Person.many_from_string decode_header(m.header["bcc"])
+    #subject = decode_header m.header["subject"]
+    #reply_to = Person.from_string m.header["reply-to"]
+
+    #refs = find_msgids decode_header(m.header["references"] || "")
+    #in_reply_to = find_msgids decode_header(m.header["in-reply-to"] || "")
+    #refs += in_reply_to unless refs.member? in_reply_to.first
+    #safe_refs = refs.map { |r| munge_msgid(r) }
+
+    ## various other headers that you don't think we will need until we
+    ## actually need them.
+
+    ## this is sometimes useful for determining who was the actual target of
+    ## the email, in the case that someone has aliases
+    #recipient_email = m.header["envelope-to"] || @.header["x-original-to"] || m.header["delivered-to"]
+
+    #list_subscribe = m.header["list-subscribe"]
+    #list_unsubscribe = m.header["list-unsubscribe"]
+    #list_post = m.header["list-post"] || m.header["x-mailing-list"]
+
+		if msgid.blank?
+			hostname = Socket.gethostname
+			msgid = "<#{Time.now.to_i}.imaptrope.#{rand 10000}@#{hostname}>" # Stolen from turnsole
+#puts "Can't find Message-Id, setting #{msgid}"
+		end
+
+		if date.blank?
+			date = Time.now.to_s
+#puts "Can't set date from mail, setting #{date}"
+		end
+
+		tmp = RMail::Message.new
+		out = RMail::Message.new
+		
+		tmp.header.replace(m.header)
+		tmp.header["Message-Id"] = msgid
+		tmp.header["Date"] = date
+		tmp.header.delete("")
+		tmp.header.each do |k,v|
+			out.header[k] = v.gsub(/\r+\n+/,"")
+		end
+	
+		out.body = body
+
+		out.to_s
+	end
 
 private
 
@@ -352,7 +386,7 @@ private
     Digest::MD5.hexdigest msgid
   end
 
-  def find_msgids msgids
+  def self.find_msgids msgids
     msgids.scan(/<(.+?)>/).map(&:first)
   end
 
@@ -456,7 +490,7 @@ private
 		"\"" << s << "\"" 
 	end
 
-  def validate_field what, thing
+  def self.validate_field what, thing
     raise InvalidMessageError, "missing '#{what}' header" if thing.nil?
     thing = thing.to_s.strip
     raise InvalidMessageError, "blank '#{what}' header: #{thing.inspect}" if thing.empty?
@@ -493,7 +527,7 @@ private
   end
 
   ## rfc2047-decode a header, convert to utf-8, and normalize whitespace
-  def decode_header v
+  def self.decode_header v
     return "" if v.nil?
 
     v = if Decoder.is_rfc2047_encoded? v

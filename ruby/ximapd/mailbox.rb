@@ -119,8 +119,9 @@ class Ximapd
 
 		def uid_search(query)
 			if @name != "All Mail"
-				query = "#{@name}" << query
+				query = "#{@name}" << "+"<< query.to_s
 			end
+			puts "query : #{query}"
 
 			result = @heliotropeclient.search CGI.unescape(query.to_s) # fetches threads
 

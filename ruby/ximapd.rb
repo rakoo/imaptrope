@@ -56,6 +56,25 @@ require "ximapd/plugin"
 require "ximapd/decoder"
 require "ximapd/person"
 
+# imported from rails
+class Object
+  def blank?
+    respond_to?(:empty?) ? empty? : !self
+  end
+end
+
+class NilClass
+  def blank?
+    true
+  end
+end
+
+class String
+  def blank?
+    self !~ /\S/
+  end
+end
+
 now = DateTime.now
 unless defined?(now.to_time)
   class DateTime

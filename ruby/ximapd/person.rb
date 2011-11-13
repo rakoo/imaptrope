@@ -61,7 +61,7 @@ class Person
 	end
 
 	def empty?
-	if @name.empty? or @name.nil? or @email.empty? or @email.nil? or @handle.empty? or @handle.nil?
+	if @name.blank? and @email.blank? and @handle.blank?
 		return true
 	else
 		return false
