@@ -409,7 +409,7 @@ class Ximapd
 
     def exec
       @session.synchronize do
-        @mail_store.import_mail(@message, @mailbox_name, @flags.join(" "))
+        @mail_store.append_mail(@message, @mailbox_name, @flags)
         n = @mail_store.get_mailbox_status(@mailbox_name, true).messages
         @session.push_queued_response(@mailbox_name, "#{n} EXISTS")
       end
@@ -892,6 +892,39 @@ class Ximapd
       @mailbox_name = mailbox_name
     end
 
+		def format_seqsets_to_output(sequence_sets)
+			puts "seq : #{sequence_sets}"
+			sequence_sets.flatten!
+
+			out = ""
+
+			sequence_sets.each do |s|
+				out << "," unless sequence_sets.first == s
+				case s
+				when Range, Array
+					out << s.first.to_s << ":" << s.last.to_s
+				when String, Integer
+					out << s.to_s
+				else
+					out << format_seqsets_to_output(s)
+				end
+			end
+
+			out
+		end
+					
+
+		# supersede to be conform to UIDPLUS
+    def send_tagged_ok_copy
+			mailbox_status = @mail_store.get_mailbox_status(@mailbox_name, "fake") #TODO remove the 2nd arg
+			uidvalidity = mailbox_status.uidvalidity
+			seq_before = @sequence_set
+
+			sequence_set_before_copy = format_seqsets_to_output(seq_before)
+			sequence_set_after_copy = format_seqsets_to_output(@seq_after)
+			@session.send_tagged_ok(@tag, "[COPYUID #{uidvalidity} #{sequence_set_before_copy} #{sequence_set_after_copy}] Done")
+    end
+
     def exec
       mails = nil
       dest_mailbox = nil
@@ -908,11 +941,12 @@ class Ximapd
                                         #override)
           #dest_mail = dest_mailbox.uid_fetch([uid]).first
 #@mail_store.plugins.fire_event(:on_copied, mail, dest_mail)
-				@mail_store.copy_mails_to_mailbox(mails, dest_mailbox)
+				@seq_after = @mail_store.copy_mails_to_mailbox(mails, dest_mailbox)
+				
 			end
       n = @mail_store.get_mailbox_status(@mailbox_name, true).messages
       @session.push_queued_response(@mailbox_name, "#{n} EXISTS")
-      send_tagged_ok
+      send_tagged_ok_copy
     end
 
     private
