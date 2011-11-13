@@ -407,14 +407,20 @@ class Ximapd
       @message = message
     end
 
+    def send_tagged_ok_append
+			mailbox_status = @mail_store.get_mailbox_status(@mailbox_name, "fake") #TODO remove the 2nd arg
+			uidvalidity = mailbox_status.uidvalidity
+			@session.send_tagged_ok(@tag, "[APPENDUID %s %s]", uidvalidity, @response["doc_id"])
+    end
+
     def exec
       @session.synchronize do
-        @mail_store.append_mail(@message, @mailbox_name, @flags)
+        @response = @mail_store.append_mail(@message, @mailbox_name, @flags)
         n = @mail_store.get_mailbox_status(@mailbox_name, true).messages
         @session.push_queued_response(@mailbox_name, "#{n} EXISTS")
       end
       @session.send_queued_responses
-      send_tagged_ok
+      send_tagged_ok_append
     end
   end
 
