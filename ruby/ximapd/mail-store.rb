@@ -237,7 +237,10 @@ class Ximapd
 			SPECIAL_MAILBOXES.keys.each do |m|
 				out << [m, ""]
 			end
-			out << @fakemailboxes.flatten
+			@fakemailboxes.each do |m|
+				out << m
+			end
+
 			out.uniq
     end
 
@@ -338,8 +341,8 @@ class Ximapd
 				mailbox_status.messages = @heliotropeclient.count "~#{SPECIAL_MAILBOXES[mailbox_name]}"
 				mailbox_status.unseen = @heliotropeclient.count "~unread+~#{SPECIAL_MAILBOXES[mailbox_name]}"
 			else
-				mailbox_status.messages = @heliotropeclient.count "#{@name}"
-				mailbox_status.unseen = @heliotropeclient.count "~unread+#{@name}"
+				mailbox_status.messages = @heliotropeclient.count "#{mailbox_name}"
+				mailbox_status.unseen = @heliotropeclient.count "~unread+#{mailbox_name}"
 			end
 
 
@@ -544,6 +547,22 @@ class Ximapd
 				end
 			end
 			mails
+		end
+
+		def format(query)
+			queryterms = query.to_s.split("+")
+
+			out = queryterms.map! do |term|
+				if SPECIAL_MAILBOXES.include?(term)
+					SPECIAL_MAILBOXES.fetch(term)
+				end
+			end.join("+")
+
+			if @name != "All Mail"
+					out << "#{@name}" << "+"<< out
+			end
+
+			CGI.unescape(out)
 		end
 
 

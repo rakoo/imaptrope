@@ -9,6 +9,8 @@ imap.login "rakoo", "test"
 imap.append "~sagem", <<EOF.gsub(/\n/, "\r\n"), [:Seen, "~hotmail"]
 From: coucou
 To: test
+Message-ID: <a@domain>
+
 
 message du machin
 
