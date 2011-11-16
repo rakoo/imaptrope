@@ -63,7 +63,7 @@ own risks.
 
 [X] STORE
 	; CAREFUL : This modifies your labels, so use with care. It works, but
-	; who knows. Moreover, you MUST ALWAYS conlider that <label> in
+	; who knows. Moreover, you MUST ALWAYS consider that <label> in
 	; heliotrope translates as ~<label> in the IMAP interface
 
 [o] RENAME
@@ -74,6 +74,67 @@ own risks.
 	; \Noselect flag or if it has submailboxes
 
 [o] CREATE
-	; a mailbox cannot be created, you just have to label a mail with the
-	; new label. IMAP will answer OK when you ask it to create a new
-	; mailbox
+	; a mailbox cannot be created, because they are just labels in
+	; heliotrope. It will just add your mailbox name in a fakemailboxes
+	; array, so that it thinks it really exists.
+
+USING WITH OFFLINEIMAP
+
+Caution : this will eat your mails ! Don't test it with important mails
+for the moment !
+
+The branch UIDPLUS is here for this project to be compliant with
+UIDPLUS, an extent of the IMAP protocol.
+Basically, when a client appends a mail or copies a mail between
+mailboxes, it doesn't know what are its uids given by the server; the
+client has to do itself some work to recaluclate them at each
+connection. Thus, OfflineIMAP adds a 'X-OfflineIMAP' header to our mails
+(yes, it modifies them) to recognize them. If we don't want this to
+happen, we have to return the uid of the mails that OfflineIMAP (or any
+IMAP client) when it acts on our mails; that is what UIDPLUS
+provides. 
+All this stuff to say, UIDPLUS is there to work with
+OfflineIMAP (although it will work with any IMAP client), but as long as
+the spec is not totally managed by ximapd (relatively, because in the
+long run, IMAP is not to be used), I will not merge it into master.
+
+If you want to try it, here is what I use as a .offlineimaprc : 
+
+
+[general]
+accounts = Heliotrope
+
+[Account Heliotrope]
+localrepository = imaptrope # the new name of ximapd :)
+remoterepository = gmailremote
+
+[Repository gmailremote]
+type = IMAP
+remotehost = imap.gmail.com
+remoteuser = <myusername>
+remotepass = <mypassword>
+ssl = yes
+nametrans = lambda folder: re.sub('(^\w*$)', r'~\1', folder.lower())
+folderfilter = lambda foldername: foldername in ['label_in_gmail']
+
+[Repository imaptrope]
+type = IMAP
+remotehost = localhost
+remoteport = 10142
+# those two are specified in ~/.ximapd
+remoteuser = myusername
+remotepass = mypassword
+ssl = no
+nametrans = lambda folder: re.sub('(^\w*$)', r'~\1', folder.lower())
+folderfilter = lambda foldername: foldername in ['~label_in_imaptrope']
+
+
+
+Some explanations : 
+
+* nametrans : labels in ximapd (or imaptrope) MUST begin with a ~ 
+* folderfilter : for the moment, we can only sync labels. Special
+ mailboxes (here, Gmail mailboxes) are not yet syncable, because I suck
+ at regexp , so I cannot construct a proper nametrans function :)
+
+REMEMBER : it is not functional yet ! Don't use it on your precious !
