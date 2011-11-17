@@ -77,3 +77,7 @@ own risks.
 	; a mailbox cannot be created, you just have to label a mail with the
 	; new label. IMAP will answer OK when you ask it to create a new
 	; mailbox
+
+USING OFFLINEIMAP
+
+see branch UIDPLUS
