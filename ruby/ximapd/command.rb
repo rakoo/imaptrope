@@ -214,6 +214,7 @@ class Ximapd
       begin
         status = nil
         @session.synchronize do
+					@mail_store.current_mailbox = @mailbox_name
           status = @mail_store.get_mailbox_status(@mailbox_name,
                                                   @session.read_only?)
         end
@@ -869,18 +870,42 @@ class Ximapd
     def get_new_flags(mail)
       raise SubclassResponsibilityError.new
     end
+
   end
 
   class SetFlagsStoreAtt < FlagsStoreAtt
     def get_new_flags(mail)
+			@flags.push("~unread") if !@flags.include?("\\Seen")
+
+			# remove everything if @flags contains \Deleted
+			# Yes, that's auto-expunge. But we never delete mails
+			@flags = [] if @flags.include?("\\Deleted")
+
       return @flags.join(" ")
     end
   end
 
   class AddFlagsStoreAtt < FlagsStoreAtt
+
+		def initialize(flags, silent = false, session)
+			super(flags, silent)
+			@session = session
+		end
+
     def get_new_flags(mail)
       flags = mail.flags(false).split(/ /)
       flags |= @flags
+
+			# remove ~unread if @flags contains \Seen
+			flags.delete_if{ |f| /\~unread/.match(f)} if @flags.include?('\\Seen')
+
+			# remove mailbox_name if @flags contains \Deleted
+			# Yes, that's auto-expunge. But we never delete mails
+			if @flags.include?("\\Deleted")
+				mailbox_regexp = Regexp.new(@session.mail_store.current_mailbox)
+				flags.delete_if{ |f| mailbox_regexp.match(f)}
+			end
+
       return flags.join(" ")
     end
   end
@@ -889,6 +914,9 @@ class Ximapd
     def get_new_flags(mail)
       flags = mail.flags(false).split(/ /)
       flags -= @flags
+
+			# add ~unread if @flags contains \Seen
+			flags.push("~unread") if @flags.include?("\\Seen")
       return flags.join(" ")
     end
   end
@@ -1757,7 +1785,7 @@ class Ximapd
       when /\AFLAGS(\.SILENT)?\z/ni
         return SetFlagsStoreAtt.new(flags, !$1.nil?)
       when /\A\+FLAGS(\.SILENT)?\z/ni
-        return AddFlagsStoreAtt.new(flags, !$1.nil?)
+        return AddFlagsStoreAtt.new(flags, !$1.nil?, @session)
       when /\A-FLAGS(\.SILENT)?\z/ni
         return RemoveFlagsStoreAtt.new(flags, !$1.nil?)
       else
