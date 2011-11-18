@@ -108,9 +108,8 @@ class Message
 	end
 
 	def body
-		rawbody = @mail_store.fetch_rawbody_for_uid(@uid).split(/\n\n/)
-		rawbody.shift
-		rawbody.join("\n\n") + "\n\n"
+		rawbody = @mail_store.fetch_rawbody_for_uid(@uid)
+		body_from_rawbody rawbody
 	end
 		
 
@@ -211,7 +210,8 @@ class Message
 
 	def self.validate(rawbody)
 		m = RMail::Parser.read rawbody
-		body = m.header[""] # I don't understand ...
+
+		body = body_from_rawbody rawbody
 
 		# add a Message-Id field if necessary
     msgid = find_msgids(decode_header(m.header["message-id"])).first
@@ -276,10 +276,16 @@ class Message
 	
 		out.body = body
 
+
 		out.to_s
 	end
 
 private
+
+	def body_from_rawbody(rawbody)
+		rawbody.split(/\r+?\n+?\r+?\n+?/).drop(1).join("\n\n")
+	end
+		
 
 	def get_part(part)
 		part_numbers = part.split(/\./).collect { |i| i.to_i - 1 }
