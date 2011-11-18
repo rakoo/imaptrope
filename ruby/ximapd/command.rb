@@ -92,6 +92,7 @@ class Ximapd
       if @session.config["starttls"]
         capa += " STARTTLS"
       end
+			capa += " UIDPLUS"
       @session.send_data(capa)
       send_tagged_ok
     end
