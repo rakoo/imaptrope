@@ -26,6 +26,8 @@
 require "heliotrope-client"
 #require "heliotrope-backend"
 require "set"
+require "rest_client"
+require "json"
 
 class Ximapd
   DEFAULT_CHARSET = "iso-2022-jp"
@@ -120,11 +122,11 @@ class Ximapd
 			"\\Seen" => nil,
 			"\\Answered" => nil,
 			"\\Flagged" => nil,
-			"\\Starred" => "starred",
-		 	"\\Draft" => "draft",
-		 	"\\Deleted" => "deleted",
+			"\\Starred" => "~starred",
+		 	"\\Draft" => "~draft",
+		 	"\\Deleted" => "~deleted",
 		 	"All Mail" => nil,
-		 	"INBOX" => "inbox"
+		 	"INBOX" => "~inbox"
 		]
 		# misses \Answered \Flagged \Seen (the latter is problematic)
 		# this Hash relates IMAP keywords with their Heliotrope
@@ -338,8 +340,8 @@ class Ximapd
 				mailbox_status.messages = @heliotropeclient.size
 				mailbox_status.unseen = @heliotropeclient.count "~unread"
 			elsif SPECIAL_MAILBOXES.member?(mailbox_name)
-				mailbox_status.messages = @heliotropeclient.count "~#{SPECIAL_MAILBOXES[mailbox_name]}"
-				mailbox_status.unseen = @heliotropeclient.count "~unread+~#{SPECIAL_MAILBOXES[mailbox_name]}"
+				mailbox_status.messages = @heliotropeclient.count "#{SPECIAL_MAILBOXES[mailbox_name]}"
+				mailbox_status.unseen = @heliotropeclient.count "~unread+#{SPECIAL_MAILBOXES[mailbox_name]}"
 			else
 				mailbox_status.messages = @heliotropeclient.count "#{mailbox_name}"
 				mailbox_status.unseen = @heliotropeclient.count "~unread+#{mailbox_name}"
@@ -442,19 +444,22 @@ class Ximapd
 			format_label_to_imap! mailbox_name
 			raise MailboxExistError.new("[TRYCREATE] #{mailbox_name} doesn't exist") if all_mailboxes.assoc(mailbox_name).nil?
 
-			flags = (Set.new(flags) - MESSAGE_MUTABLE_STATE).to_a.compact
-			flags.map! do |f|
-				format_label_from_imap_to_heliotrope!(f)
-			end
+			state = (Set.new(flags) & MESSAGE_MUTABLE_STATE).to_a.compact
+			state.map!{ |f| format_label_from_imap_to_heliotrope!(f) }.compact.uniq!
 
+			flags = (Set.new(flags) - MESSAGE_MUTABLE_STATE).to_a.compact
+			flags.map! { |f| format_label_from_imap_to_heliotrope!(f) }
 
 			hlabel = format_label_from_imap_to_heliotrope!(mailbox_name)
 			flags = (flags + [hlabel]).compact.uniq
 
 			#construct the message body. We need a message_id
-			validated_message = Message.validate(message)
+			# not trusted yet
+			#validated_message = Message.validate(message)
 			
-			@heliotropeclient.add_message(validated_message, :labels => flags)
+			message = message.force_encoding("binary") if message.respond_to?(:force_encoding)
+
+			@heliotropeclient.add_message(message, :labels => flags, :state => state)
 		end
 
     def open_backend(*args, &block)
@@ -572,7 +577,6 @@ class Ximapd
 			unless /^\~/.match(label) or SPECIAL_MAILBOXES.key?(label)
 				raise NoMailboxError.new("Don't forget the ~ before the name !")
 			end
-#"\~" + hlabel unless (/^\~/.match(hlabel) or SPECIAL_MAILBOXES.member?(hlabel)) # access mailboxes with ~label
 		end
 
 
