@@ -137,4 +137,13 @@ Some explanations :
  mailboxes (here, Gmail mailboxes) are not yet syncable, because I suck
  at regexp , so I cannot construct a proper nametrans function :)
 
+You can then use 
+
+$ offlineimap -1
+
+to sync your IMAP servers. Note that you MUST use the '-1' option, which
+means "no multithreading" : imaptrope is not thread-safe, and will not
+be. This also means that you can have only one client at a time
+connected to imaptrope
+
 REMEMBER : it is not functional yet ! Don't use it on your precious !
