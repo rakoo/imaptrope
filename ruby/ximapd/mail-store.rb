@@ -115,9 +115,17 @@ class Ximapd
   class MailStore
     include MonitorMixin
 
-		MESSAGE_MUTABLE_STATE = Set.new %w(starred unread deleted)
+#MESSAGE_MUTABLE_STATE = Set.new %w(starred unread deleted)
 		MESSAGE_IMMUTABLE_STATE = Set.new %w(attachment signed encrypted draft sent)
-		MESSAGE_STATE = MESSAGE_IMMUTABLE_STATE + MESSAGE_MUTABLE_STATE
+#MESSAGE_STATE = MESSAGE_IMMUTABLE_STATE + MESSAGE_MUTABLE_STATE
+
+		MESSAGE_MUTABLE_STATE = Hash[
+			"\\Starred"	=>	"starred",
+			"\\Seen"	=>	nil,
+			"\\Deleted"	=>	"deleted",
+			nil	=>	"unread"
+		]
+
 		SPECIAL_MAILBOXES = Hash[
 			"\\Seen" => nil,
 			"\\Answered" => nil,
@@ -440,10 +448,10 @@ class Ximapd
 			format_label_to_imap! mailbox_name
 			raise MailboxExistError.new("[TRYCREATE] #{mailbox_name} doesn't exist") if all_mailboxes.assoc(mailbox_name).nil?
 
-			state = (Set.new(flags) & MESSAGE_MUTABLE_STATE).to_a.compact
+			state = (flags & MESSAGE_MUTABLE_STATE.values).compact
 			state.map!{ |f| format_label_from_imap_to_heliotrope!(f) }.compact.uniq!
 
-			flags = (Set.new(flags) - MESSAGE_MUTABLE_STATE).to_a.compact
+			flags = (flags - MESSAGE_MUTABLE_STATE.values).to_a.compact
 			flags.map! { |f| format_label_from_imap_to_heliotrope!(f) }
 
 			hlabel = format_label_from_imap_to_heliotrope!(mailbox_name)
@@ -519,19 +527,30 @@ class Ximapd
 			messageinfos.fetch("labels").each do |l|
 				out << "~#{l}" 
 			end
+
 			messageinfos.fetch("state").each do |s|
-				out << SPECIAL_MAILBOXES.key(s) unless s == "unread"
+				out << SPECIAL_MAILBOXES.key(s) unless /unread/.match(s)
 			end
-			out << "\\Seen" unless out.include?("unread")
+
+			out << "\\Seen" unless out.include?("~unread")
 			out.compact.uniq
 		end
 
 		def set_labels_and_flags_for_uid(uid, flags)
-			thread_id = @heliotropeclient.message(uid)["thread_id"]
+			messageinfos = @heliotropeclient.message(uid)
+			thread_id = messageinfos["thread_id"]
+			message_id = messageinfos["message_id"]
+
 			flags.map! do |f|
 				format_label_from_imap_to_heliotrope!(f)
 			end.compact!
-			@heliotropeclient.set_labels! thread_id, flags
+
+			# separate flags between labels and state
+			state = flags.select{|f| MESSAGE_MUTABLE_STATE.has_value?(f)}
+			labels = flags - state
+
+			@heliotropeclient.set_labels! thread_id, labels
+			@heliotropeclient.set_state! message_id, state
 		end
 
 		def fetch_date_for_uid(uid)
@@ -576,7 +595,7 @@ class Ximapd
 
 		def format_label_to_imap!(label)
 			unless /^\~/.match(label) or SPECIAL_MAILBOXES.key?(label)
-				raise NoMailboxError.new("Don't forget the ~ before the name !")
+				raise NoMailboxError.new("#{label} doesn't exist or is invalid")
 			end
 		end
 
@@ -584,6 +603,8 @@ class Ximapd
 		def format_label_from_imap_to_heliotrope!(ilabel)
 			if SPECIAL_MAILBOXES.key?(ilabel)
 				return SPECIAL_MAILBOXES.fetch(ilabel)
+			elsif /^\\/.match(ilabel)
+				raise NoMailboxError.new("#{ilabel} is not a valid name!")
 			else
 				return ilabel.gsub(/^\~/,"") # remove ~ from the beginning of the label
 			end
