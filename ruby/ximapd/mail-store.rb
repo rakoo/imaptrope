@@ -457,13 +457,14 @@ class Ximapd
 			hlabel = format_label_from_imap_to_heliotrope!(mailbox_name)
 			flags = (flags + [hlabel]).compact.uniq
 
-			#construct the message body. We need a message_id
-			# not trusted yet
-			#validated_message = Message.validate(message)
+			#validate the message
+			begin
+				validated_message = Message.validate(message)
+			end
 			
-			message = message.force_encoding("binary") if message.respond_to?(:force_encoding)
+			validated_message = validated_message.force_encoding("binary") if validated_message.respond_to?(:force_encoding)
 
-			response = @heliotropeclient.add_message(message, :labels => flags, :state => state)
+			response = @heliotropeclient.add_message(validated_message, :labels => flags, :state => state)
 			response
 		end
 

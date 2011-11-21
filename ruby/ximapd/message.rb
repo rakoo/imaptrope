@@ -1,6 +1,6 @@
 # encoding: UTF-8
 
-require 'rmail'
+require 'mail'
 require 'digest/md5'
 require 'json'
 require 'timeout'
@@ -209,75 +209,21 @@ class Message
 	end
 
 	def self.validate(rawbody)
-		m = RMail::Parser.read rawbody
+		m = Mail.read_from_string rawbody
 
-		body = body_from_rawbody rawbody
+		raise MessageNotValidError.new("No from field") if m[:from].nil?
+		raise MessageNotValidError.new("no to field") if m[:to].nil?
 
 		# add a Message-Id field if necessary
-    msgid = find_msgids(decode_header(m.header["message-id"])).first
-
-		# add a Date if necessary
-    date = begin
-			Time.parse(m.header["date"]).to_s
-		rescue
-			nil
+		unless m[:message_id]
+				hostname = Socket.gethostname
+				m.message_id = "<#{Time.now.to_i}.imaptrope.#{rand 10000}@#{hostname}>" # Stolen from turnsole
 		end
 
-		# exit if no from
-		from = Person.from_string decode_header(m.header["from"])
-		raise "Can't find from" if from.blank?
-		
-		# exit if no to
-    to = Person.many_from_string decode_header(m.header["to"])
-		raise "Can't find to" if to.blank?
+		# add a Date field if necessary
+		m.date = Time.now.to_s unless m.date
 
-    #cc = Person.many_from_string decode_header(m.header["cc"])
-    #bcc = Person.many_from_string decode_header(m.header["bcc"])
-    #subject = decode_header m.header["subject"]
-    #reply_to = Person.from_string m.header["reply-to"]
-
-    #refs = find_msgids decode_header(m.header["references"] || "")
-    #in_reply_to = find_msgids decode_header(m.header["in-reply-to"] || "")
-    #refs += in_reply_to unless refs.member? in_reply_to.first
-    #safe_refs = refs.map { |r| munge_msgid(r) }
-
-    ## various other headers that you don't think we will need until we
-    ## actually need them.
-
-    ## this is sometimes useful for determining who was the actual target of
-    ## the email, in the case that someone has aliases
-    #recipient_email = m.header["envelope-to"] || @.header["x-original-to"] || m.header["delivered-to"]
-
-    #list_subscribe = m.header["list-subscribe"]
-    #list_unsubscribe = m.header["list-unsubscribe"]
-    #list_post = m.header["list-post"] || m.header["x-mailing-list"]
-
-		if msgid.blank?
-			hostname = Socket.gethostname
-			msgid = "<#{Time.now.to_i}.imaptrope.#{rand 10000}@#{hostname}>" # Stolen from turnsole
-#puts "Can't find Message-Id, setting #{msgid}"
-		end
-
-		if date.blank?
-			date = Time.now.to_s
-#puts "Can't set date from mail, setting #{date}"
-		end
-
-		tmp = RMail::Message.new
-		out = RMail::Message.new
-		
-		tmp.header.replace(m.header)
-		tmp.header["Message-Id"] = msgid
-		tmp.header["Date"] = date
-		tmp.header.delete("")
-		tmp.header.each do |k,v|
-			out.header[k] = v.gsub(/\r+\n+/,"")
-		end
-	
-		out.body = body
-
-
-		out.to_s
+		m.to_s
 	end
 
 private
