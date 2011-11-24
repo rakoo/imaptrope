@@ -478,7 +478,8 @@ class Ximapd
         mailbox = @session.get_current_mailbox
         uids = mailbox.uid_search(mailbox.query&FlagQuery.new("\\Deleted"))
         deleted_mails = mailbox.uid_fetch(uids).reverse
-        @mail_store.delete_mails(deleted_mails)
+# no
+#@mail_store.delete_mails(deleted_mails)
       end
       @session.send_queued_responses
       @session.close_mailbox
@@ -497,7 +498,8 @@ class Ximapd
         deleted_seqnos = deleted_mails.collect { |mail|
           mail.seqno
         }
-        @mail_store.delete_mails(deleted_mails)
+#no
+#@mail_store.delete_mails(deleted_mails)
       end
       for seqno in deleted_seqnos
         @session.send_data("%d EXPUNGE", seqno)
@@ -904,6 +906,8 @@ class Ximapd
 			if @flags.include?("\\Deleted")
 				mailbox_regexp = Regexp.new(@session.mail_store.current_mailbox)
 				flags.delete_if{ |f| mailbox_regexp.match(f)}
+				
+				flags -= ["\\Deleted"]
 			end
 
       return flags.join(" ")
