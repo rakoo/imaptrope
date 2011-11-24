@@ -126,17 +126,14 @@ class Ximapd
 			nil	=>	"unread"
 		]
 
-		SPECIAL_MAILBOXES = Hash[
-			"\\Seen" => nil,
+		SPECIAL_MAILBOXES = MESSAGE_MUTABLE_STATE.merge( 
+		{
 			"\\Answered" => nil,
-			"\\Flagged" => nil,
-			"\\Starred" => "starred",
 		 	"\\Draft" => "draft",
-		 	"\\Deleted" => "deleted",
 		 	"All Mail" => nil,
 		 	"INBOX" => "inbox"
-		]
-		# misses \Answered \Flagged \Seen (the latter is problematic)
+		})
+		# misses \Answered \Seen (the latter is problematic)
 		# this Hash relates IMAP keywords with their Heliotrope
 		# counterparts
 
@@ -413,10 +410,10 @@ class Ximapd
     end
 
     def delete_mails(mails)
-			puts "; trying to delete mails; I will put the label \"deleted\" on them"
+			puts "; trying to delete mails"
 			for mail in mails
 				thread_id = @heliotropeclient.message(mail.uid)["thread_id"]
-				@heliotropeclient.set_labels! thread_id, ["deleted"]
+#@heliotropeclient.set_labels! thread_id, ["deleted"]
 			end
     end
 
@@ -451,11 +448,10 @@ class Ximapd
 			state = (flags & MESSAGE_MUTABLE_STATE.values).compact
 			state.map!{ |f| format_label_from_imap_to_heliotrope!(f) }.compact.uniq!
 
-			flags = (flags - MESSAGE_MUTABLE_STATE.values).to_a.compact
-			flags.map! { |f| format_label_from_imap_to_heliotrope!(f) }
-
+			labels = (flags - MESSAGE_MUTABLE_STATE.values).to_a.compact
+			labels.map!{ |f| format_label_from_imap_to_heliotrope!(f) }.compact.uniq!
 			hlabel = format_label_from_imap_to_heliotrope!(mailbox_name)
-			flags = (flags + [hlabel]).compact.uniq
+			labels = (labels + [hlabel]).compact.uniq
 
 			#validate the message
 			begin
@@ -463,9 +459,19 @@ class Ximapd
 			end
 			
 			validated_message = validated_message.force_encoding("binary") if validated_message.respond_to?(:force_encoding)
+			response = @heliotropeclient.add_message(validated_message, :labels => labels, :state => state)
+			# Message already exists; set labels and state
+			if response["status"] == "seen"
+				puts "; adding labels #{labels} and state #{state} to message in hmailbox #{hlabel} "
+				old_labels = @heliotropeclient.message(response["doc_id"])["labels"]
+				old_state = @heliotropeclient.message(response["doc_id"])["state"]
 
-			response = @heliotropeclient.add_message(validated_message, :labels => flags, :state => state)
-			response
+				new_flags = (old_labels + labels).compact.uniq + (old_state + state).compact.uniq
+				set_labels_and_flags_for_uid response["doc_id"], new_flags
+			else
+				puts "; added message to hmailbox #{hlabel} with labels #{labels} and state #{state}"
+			end
+			response.merge({:status => :unseen})
 		end
 
     def open_backend(*args, &block)
@@ -530,7 +536,7 @@ class Ximapd
 			end
 
 			messageinfos.fetch("state").each do |s|
-				out << SPECIAL_MAILBOXES.key(s) unless /unread/.match(s)
+				out << SPECIAL_MAILBOXES.key(s)
 			end
 
 			out << "\\Seen" unless out.include?("~unread")
@@ -557,40 +563,6 @@ class Ximapd
 		def fetch_date_for_uid(uid)
 			Time.at(@heliotropeclient.message(uid).fetch("date"))
 		end
-
-		def fetch_mails(sequence_set)
-			mails = []
-			sequence_set.each do |atom|
-				case atom
-				when Range
-					atom.each do |uid|
-						messageinfos = @heliotropeclient.message uid
-						mails.push(Message.new(messageinfos, self))
-					end
-				else
-					messageinfos = @heliotropeclient.message atom
-					mails.push(Message.new(messageinfos, self))
-				end
-			end
-			mails
-		end
-
-		def format(query)
-			queryterms = query.to_s.split("+")
-
-			out = queryterms.map! do |term|
-				if SPECIAL_MAILBOXES.include?(term)
-					"~" + SPECIAL_MAILBOXES.fetch(term)
-				end
-			end.join("+")
-
-			if @name != "All Mail"
-					out << "#{@name}" << "+"<< out
-			end
-
-			CGI.unescape(out)
-		end
-
 
     private
 

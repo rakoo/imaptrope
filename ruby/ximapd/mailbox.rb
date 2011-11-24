@@ -29,60 +29,10 @@ class Ximapd
 
   MailboxStatus = Struct.new(:messages, :recent, :uidnext, :uidvalidity, :unseen)
 
-  class Mailbox
-    attr_reader :mail_store, :name
+	class HeliotropeFakeMailbox		
 
-    def initialize(mail_store, name, data)
-      @mail_store = mail_store
-      @name = name
-      @data = data
-      @config = mail_store.config
-    end
+		attr_reader :mail_store, :name 
 
-    def [](key)
-      return @data[key]
-    end
-
-    def []=(key, val)
-      @data[key] = val
-    end
-
-    def query
-      return NullQuery.new
-    end
-
-    def save
-      @data["class"] = self.class.name.slice(/\AXimapd::(.*)\z/, 1)
-      @mail_store.mailbox_db["mailboxes"][@name] = @data
-    end
-
-    def import(mail_data)
-      raise SubclassResponsibilityError.new
-    end
-
-    def get_mail_path(mail)
-      raise SubclassResponsibilityError.new
-    end
-
-    def status
-      raise SubclassResponsibilityError.new
-    end
-
-    def uid_search(query)
-      raise SubclassResponsibilityError.new
-    end
-
-    def fetch(sequence_set)
-      raise SubclassResponsibilityError.new
-    end
-
-    def uid_fetch(sequence_set)
-      raise SubclassResponsibilityError.new
-    end
-  end
-
-	class HeliotropeFakeMailbox < Mailbox
-		
 		def initialize(mail_store, name, data)
 			@mail_store = mail_store
 			@name = name # the label: the mailbox should be accessed with ~label ,  not just with label
@@ -118,7 +68,7 @@ class Ximapd
 		end
 
 		def uid_search(query)
-			new_query = @mail_store.format(query)
+			new_query = format(query)
 
 			result = @heliotropeclient.search new_query  # fetches threads
 
@@ -140,17 +90,82 @@ class Ximapd
 		end
 
 		def fetch(sequence_set)
-			# same technique for all mailboxes, so the method should be
-			# defined in mail-store.rb
-			@mail_store.fetch_mails(sequence_set)
+			mails = []
+
+			query = format(@name)
+			if query.nil? or query.empty?
+				threads_in_mailbox = (1..@heliotropeclient.size).to_a
+			else
+				threads_in_mailbox = @heliotropeclient.search(query).map{|threadinfos| threadinfos["thread_id"]}
+			end
+
+			threads_in_mailbox.sort!
+			puts "; threads in mailbox : #{threads_in_mailbox}"
+
+			mails_in_mailbox = threads_in_mailbox.map do |thread_id| 
+				messageinfos = @heliotropeclient.thread(thread_id).map { |blob| blob.first }
+				messageinfos.first["message_id"]
+			end.flatten.sort
+			puts "; mails in mailbox : #{mails_in_mailbox}"
+
+# mails_in_mailbox contains all the mails in the mailbox. When the
+# client want the message 1..3 (sequence_set), he wants the 3 first
+# messages in the mailbox; imaptrope gives him mails_in_mailbox.at(1),
+# mails_in_mailbox.at(2) and mails_in_mailbox.at(3)
+	
+			sequence_set.each do |atom|
+				case atom
+				when Range
+					atom.each do |uid|
+						messageinfos = @heliotropeclient.message mails_in_mailbox.at(uid - 1)
+						mails.push(Message.new(messageinfos, @mail_store))
+					end
+				else
+					messageinfos = @heliotropeclient.message mails_in_mailbox.at(atom - 1)
+					mails.push(Message.new(messageinfos, @mail_store))
+				end
+			end
+			mails
 		end
 
 		def uid_fetch(sequence_set)
-			# same as fetch, because uids and seq_no are the same
-			fetch sequence_set
+			mails = []
+			sequence_set.each do |atom|
+				case atom
+				when Range
+					atom.each do |uid|
+						messageinfos = @heliotropeclient.message uid
+						mails.push(Message.new(messageinfos, @mail_store))
+					end
+				else
+					messageinfos = @heliotropeclient.message atom
+					mails.push(Message.new(messageinfos, @mail_store))
+				end
+			end
+			mails
 		end
 
 
+
+		private
+
+
+		def format(query)
+			queryterms = query.to_s.split("+")
+			out = queryterms.map! do |term|
+				if MailStore::SPECIAL_MAILBOXES.include?(term)
+					"~" + MailStore::SPECIAL_MAILBOXES.fetch(term) unless MailStore::SPECIAL_MAILBOXES.fetch(term).nil?
+				else
+					term
+				end
+			end.join("+")
+
+			if @name != "All Mail" && !queryterms.include?(@name)
+					out << "+" << "#{@name}" 
+			end
+
+			CGI.unescape(out)
+		end
 
 	end
 end
