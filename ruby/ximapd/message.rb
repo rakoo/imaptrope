@@ -226,6 +226,15 @@ class Message
 		m.to_s
 	end
 
+	def self.safe_msgid
+		m = mail.read_from_string rawbody
+		if m[:message_id]
+			return munge_msgid m[:message_id]
+		else
+			raise MessageNotValidError.new("Message has no Messag-ID")
+		end
+	end
+
 private
 
 	def body_from_rawbody(rawbody)
