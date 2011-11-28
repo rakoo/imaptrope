@@ -111,11 +111,17 @@ remoterepository = gmailremote
 [Repository gmailremote]
 type = IMAP
 remotehost = imap.gmail.com
-remoteuser = <myusername>
-remotepass = <mypassword>
+remoteuser = user
+remotepass = pass
 ssl = yes
-nametrans = lambda folder: re.sub('(^\w*$)', r'~\1', folder.lower())
-folderfilter = lambda foldername: foldername in ['label_in_gmail']
+realdelete = no
+nametrans = lambda folder: 		re.sub('\[Gmail\]/Spam', '~spam',
+    re.sub('\[Gmail\]/Drafts', '~draft', 
+    re.sub('\[Gmail\]/Sent Mail', '~sent', 
+    re.sub('\[Gmail\]/Starred', '\\Starred', 
+    re.sub('\[Gmail\]/Trash', '~trash', 
+    re.sub('\[Gmail\]/All Mail', 'All Mail',
+		re.sub('(^[^(?:INBOX|\[|\])]*$)', lambda pat: '~' + pat.group(1).lower(), folder )))))))
 
 [Repository imaptrope]
 type = IMAP
@@ -129,13 +135,14 @@ nametrans = lambda folder: re.sub('(^\w*$)', r'~\1', folder.lower())
 folderfilter = lambda foldername: foldername in ['~label_in_imaptrope']
 
 
+folderfilter = lambda foldername: foldername in ['coucou']
+#folderfilter = lambda foldername: foldername not in ['[Gmail]/Important']
 
 Some explanations : 
 
 * nametrans : labels in ximapd (or imaptrope) MUST begin with a ~ 
-* folderfilter : for the moment, we can only sync labels. Special
- mailboxes (here, Gmail mailboxes) are not yet syncable, because I suck
- at regexp , so I cannot construct a proper nametrans function :)
+* folderfilter : GMail special labels have an equivalent; special labels
+  are translated to ~label
 
 You can then use 
 
