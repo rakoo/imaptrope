@@ -1,0 +1,9 @@
+* add message in gmail
+* remove message in gmail
+* add message in turnsole
+* remove message in turnsole
+
+* correct expunge :
+	* add 1 message from gmail
+	* add another message from gmail
+	* delete the first one in turnsole
