@@ -1,4 +1,6 @@
-This version of ximapd is based on https://github.com/shugo/ximapd and adapted to work
+imaptrope is cool.
+
+This is a version of ximapd based on https://github.com/shugo/ximapd and adapted to work
 with heliotrope, the fabulous mail store by William Morgan : 
 https://github.com/wmorgan/heliotrope
 
@@ -7,15 +9,11 @@ JSON-over-HTTP interface of Heliotrope.
 
 INSTALL, SETUP AND THE BORING THINGS
 
-Read README.en (or.ja); you don't need to really install it to test it.
-Just run 
-$ ruby install.rb --prefix=./fake
-to create the 'ximapd' bin that you will use afterwards. You can then
-remove the ./fake dir safely.
+Create ~/ximapd
 
 USAGE
 
-$ ruby -Iruby -Ibackends -I/path/to/heliotrope-client ximapd --start --debug
+$ ruby -Iruby -I/path/to/heliotrope-client bin/imaptrope --start --debug
 
 If you want to test it without destructing everything, you should try
 the tag "safe" and not further, because those implement destructive
@@ -94,11 +92,12 @@ happen, we have to return the uid of the mails that OfflineIMAP (or any
 IMAP client) when it acts on our mails; that is what UIDPLUS
 provides. 
 All this stuff to say, UIDPLUS is there to work with
-OfflineIMAP (although it will work with any IMAP client), but as long as
-the spec is not totally managed by ximapd (relatively, because in the
-long run, IMAP is not to be used), I will not merge it into master.
+OfflineIMAP (although it will work with any IMAP client). When it works
+with offlineimap, I will merge it in master to simplify the tree, even
+if UIDPLUS is not totally respected. In the long term we don't need
+IMAP, because JSON-over-HTTP rox !
 
-If you want to try it, here is what I use as a .offlineimaprc : 
+If you want to try it, here is the .offlinimaprc I use : 
 
 
 [general]
@@ -132,11 +131,7 @@ remoteuser = myusername
 remotepass = mypassword
 ssl = no
 nametrans = lambda folder: re.sub('(^\w*$)', r'~\1', folder.lower())
-folderfilter = lambda foldername: foldername in ['~label_in_imaptrope']
 
-
-folderfilter = lambda foldername: foldername in ['coucou']
-#folderfilter = lambda foldername: foldername not in ['[Gmail]/Important']
 
 Some explanations : 
 
