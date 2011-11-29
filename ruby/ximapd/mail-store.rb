@@ -28,25 +28,10 @@ require "heliotrope-client"
 require "set"
 require "rest_client"
 require "json"
+require "leveldb"
 
 class Ximapd
-  DEFAULT_CHARSET = "iso-2022-jp"
-  DEFAULT_ML_HEADER_FIELDS = [
-    "x-ml-name",
-    "list-id",
-    "mailing-list"
-  ]
-  DEFAULT_MAILBOXES = {
-    "ml" => {
-      "flags" => "\\Noselect"
-    },
-    "queries" => {
-      "flags" => "\\Noselect"
-    },
-    "static" => {
-      "flags" => "\\Noselect"
-    }
-  }
+
 
   module DataFormat
     module_function
@@ -109,27 +94,25 @@ class Ximapd
     end
   end
 
-#MailboxStatus = Struct.new(:messages, :recent, :uidnext, :uidvalidity,
-#:unseen)
-
   class MailStore
     include MonitorMixin
 
-#MESSAGE_MUTABLE_STATE = Set.new %w(starred unread deleted)
-		MESSAGE_IMMUTABLE_STATE = Set.new %w(attachment signed encrypted draft sent)
-#MESSAGE_STATE = MESSAGE_IMMUTABLE_STATE + MESSAGE_MUTABLE_STATE
+		MESSAGE_IMMUTABLE_STATE = Set.new %w(attachment signed encrypted draft)
 
-		MESSAGE_MUTABLE_STATE = Hash[
+		MESSAGE_MUTABLE_STATE_HASH = {
 			"\\Starred"	=>	"starred",
 			"\\Seen"	=>	nil,
 			"\\Deleted"	=>	"deleted",
 			nil	=>	"unread"
-		]
+		}
+	
+		MESSAGE_STATE = Set.new(MESSAGE_MUTABLE_STATE_HASH.values) + MESSAGE_IMMUTABLE_STATE
 
-		SPECIAL_MAILBOXES = MESSAGE_MUTABLE_STATE.merge( 
+		SPECIAL_MAILBOXES = MESSAGE_MUTABLE_STATE_HASH.merge( 
 		{
 			"\\Answered" => nil,
 		 	"\\Draft" => "draft",
+			"Sent"	=> "sent",
 		 	"All Mail" => nil,
 		 	"INBOX" => "inbox"
 		})
@@ -141,7 +124,7 @@ class Ximapd
     attr_reader :config, :path, :mailbox_db, :mailbox_db_path
     attr_reader :plugins
     attr_reader :uid_seq, :uidvalidity_seq, :mailbox_id_seq
-		attr_accessor :current_mailbox
+		attr_accessor :current_mailbox, :uid_store
 
     def initialize(config)
       super()
@@ -167,6 +150,10 @@ class Ximapd
 			@fakemailboxes = []
 
 			@current_mailbox = ""
+
+			# UIDs ore unique to a mailbox, but this is incompatible with
+			# heliotrope, where message_ids are unique through the whole mailstore
+			@uid_store = LevelDB::DB.new File.join(@path, "UID_store")
     end
 
     def close
@@ -219,7 +206,7 @@ class Ximapd
     end
 
     def mailboxes
-			labels = @heliotropeclient.labels
+			labels = Set.new(@heliotropeclient.labels)
 
 			#Format to return: 
 			#[
@@ -229,17 +216,13 @@ class Ximapd
 
 			out = []
 			labels.each do |label|
-				if MESSAGE_IMMUTABLE_STATE.member?(label)
-					next
-				elsif SPECIAL_MAILBOXES.value?(label)
-					out << [SPECIAL_MAILBOXES.key(label), ""] # use the IMAP special name, not the heliotrope one
-				else
-				out << ["\~"+label, ""]
-				end
+				out << ["\~"+label, ""]	unless SPECIAL_MAILBOXES.value?(label)
 			end
+
 			SPECIAL_MAILBOXES.keys.each do |m|
 				out << [m, ""]
 			end
+
 			@fakemailboxes.each do |m|
 				out << m
 			end
@@ -324,31 +307,12 @@ class Ximapd
 			@heliotropeclient.prune_labels!
     end
 
-
-
-
-    def get_mailbox_status(mailbox_name, read_only)
+    def get_mailbox_status(mailbox_name, read_only = false)
 
 			format_label_to_imap!(mailbox_name)
 			mailbox = get_mailbox mailbox_name
 			mailbox_status = mailbox.status
 			mailbox_status.uidvalidity = @uidvalidity_seq.current
-			#unless read_only
-				#@last_peeked_uids[mailbox_name] = @uid_seq.current.to_i
-			#end
-
-			if mailbox_name == "All Mail"
-				mailbox_status.messages = @heliotropeclient.size
-				mailbox_status.unseen = @heliotropeclient.count "~unread"
-			elsif SPECIAL_MAILBOXES.member?(mailbox_name)
-				mailbox_status.messages = @heliotropeclient.count "~#{SPECIAL_MAILBOXES[mailbox_name]}"
-				mailbox_status.unseen = @heliotropeclient.count "~unread+~#{SPECIAL_MAILBOXES[mailbox_name]}"
-			else
-				mailbox_status.messages = @heliotropeclient.count "#{mailbox_name}"
-				mailbox_status.unseen = @heliotropeclient.count "~unread+#{mailbox_name}"
-			end
-
-
 			return mailbox_status
     end
 
@@ -390,50 +354,35 @@ class Ximapd
 
 			data = Hash.new
 			data['heliotrope-client'] = @heliotropeclient
+			data['UID_store'] = @UID_store
 			return HeliotropeFakeMailbox.new(self, name, data)
-
-      #if name == "DEFAULT"
-        #return DefaultMailbox.new(self)
-      #end
-      #data = @mailbox_db["mailboxes"][name]
-      #unless data
-        #raise NoMailboxError.new("no such mailbox")
-      #end
-      #class_name = data["class"]
-      #if class_name
-        #return Ximapd.const_get(class_name).new(self, name,
-                                                #@mailbox_db["mailboxes"][name])
-      #else
-        #return SearchBasedMailbox.new(self, name,
-                                      #@mailbox_db["mailboxes"][name])
-      #end
     end
 
-    def delete_mails(mails)
+    def delete_mail(mailbox, seqno)
 			puts "; trying to delete mails"
-			for mail in mails
-				thread_id = @heliotropeclient.message(mail.uid)["thread_id"]
-#@heliotropeclient.set_labels! thread_id, ["deleted"]
-			end
+			ret = mailbox.delete_seqno(seqno)
+			ret
     end
 
 		def copy_mails_to_mailbox(mails, mailbox)
+			out = []
+
 			mailbox_name = mailbox.name
 			format_label_to_imap!(mailbox_name)
 			all_mailboxes = mailboxes
-			raise MailboxExistError.new("[TRYCREATE] #{mailbox_name} doesn't exist") if all_mailboxes.assoc(mailbox_name).nil? 
-			raise NotSelectableMailboxError.new("#{mailbox_name} is not selectable") if all_mailboxes.assoc(mailbox_name).include?("\\Noselect")
+			raise MailboxExistError.new("[TRYCREATE] #{mailbox_name} doesn't exist") if
+		 		all_mailboxes.assoc(mailbox_name).nil? 
+			raise NotSelectableMailboxError.new("#{mailbox_name} is not selectable") if
+				all_mailboxes.assoc(mailbox_name).include?("\\Noselect")
 
 			puts "copy mails to #{mailbox_name}"
 
-			out = []
+			dst_mailbox = get_mailbox(mailbox_name)
 
 			hlabel = format_label_from_imap_to_heliotrope!(mailbox_name)
 			mails.each do |m|
-				new_labels = m.labels.split(' ') + [hlabel]
-				uid = m.uid
-				out << uid
-				set_labels_and_flags_for_uid(uid, new_labels)
+				response = dst_mailbox.append_mail(m)
+				out << response[:uid]
 			end
 
 			out
@@ -443,35 +392,10 @@ class Ximapd
 		def append_mail(message, mailbox_name, flags)
 			all_mailboxes = mailboxes
 			format_label_to_imap! mailbox_name
-			raise MailboxExistError.new("[TRYCREATE] #{mailbox_name} doesn't exist") if all_mailboxes.assoc(mailbox_name).nil?
+			raise MailboxExistError.new("[TRYCREATE] #{mailbox_name} doesn't exist") if
+		 		all_mailboxes.assoc(mailbox_name).nil?
 
-			state = (flags & MESSAGE_MUTABLE_STATE.values).compact
-			state.map!{ |f| format_label_from_imap_to_heliotrope!(f) }.compact.uniq!
-
-			labels = (flags - MESSAGE_MUTABLE_STATE.values).to_a.compact
-			labels.map!{ |f| format_label_from_imap_to_heliotrope!(f) }.compact.uniq!
-			hlabel = format_label_from_imap_to_heliotrope!(mailbox_name)
-			labels = (labels + [hlabel]).compact.uniq
-
-			#validate the message
-			begin
-				validated_message = Message.validate(message)
-			end
-			
-			validated_message = validated_message.force_encoding("binary") if validated_message.respond_to?(:force_encoding)
-			response = @heliotropeclient.add_message(validated_message, :labels => labels, :state => state)
-			# Message already exists; set labels and state
-			if response["status"] == "seen"
-				puts "; adding labels #{labels} and state #{state} to message in hmailbox #{hlabel} "
-				old_labels = @heliotropeclient.message(response["doc_id"])["labels"]
-				old_state = @heliotropeclient.message(response["doc_id"])["state"]
-
-				new_flags = (old_labels + labels).compact.uniq + (old_state + state).compact.uniq
-				set_labels_and_flags_for_uid response["doc_id"], new_flags
-			else
-				puts "; added message to hmailbox #{hlabel} with labels #{labels} and state #{state}"
-			end
-			response.merge({:status => :unseen})
+			get_mailbox(mailbox_name).append_mail_to_mailbox message, flags
 		end
 
     def open_backend(*args, &block)
@@ -517,20 +441,14 @@ class Ximapd
       return @mailbox_id_seq.next
     end
 
-# methods to retrieve informations of a message from within it
-# heliotrope doesn't really have mailboxes, so these functions really
-# belong here. 
 
-		def fetch_rawbody_for_uid(uid)
-			@heliotropeclient.raw_message uid
-		end
 
 # TODO : those 2 methods fetch the whole wessage, but we don't need the
 # body. Maybe add a "complete" arg to the fetch method to fetch only the
 # messageinfos ?
-		def fetch_labels_and_flags_for_uid(uid)
+		def fetch_labels_and_flags_for_message_id(message_id)
 			out = []
-			messageinfos = 	@heliotropeclient.message(uid)
+			messageinfos = 	@heliotropeclient.message(message_id)
 			messageinfos.fetch("labels").each do |l|
 				out << "~#{l}" 
 			end
@@ -543,8 +461,8 @@ class Ximapd
 			out.compact.uniq
 		end
 
-		def set_labels_and_flags_for_uid(uid, flags)
-			messageinfos = @heliotropeclient.message(uid)
+		def set_labels_and_flags_for_message_id(message_id, flags)
+			messageinfos = @heliotropeclient.message(message_id)
 			thread_id = messageinfos["thread_id"]
 			message_id = messageinfos["message_id"]
 
@@ -553,18 +471,25 @@ class Ximapd
 			end.compact!
 
 			# separate flags between labels and state
-			state = flags.select{|f| MESSAGE_MUTABLE_STATE.has_value?(f)}
+			state = flags.select{|f| MESSAGE_STATE.member?(f)}
 			labels = flags - state
 
 			@heliotropeclient.set_labels! thread_id, labels
 			@heliotropeclient.set_state! message_id, state
+
+			@heliotropeclient.message message_id
 		end
 
 		def fetch_date_for_uid(uid)
 			Time.at(@heliotropeclient.message(uid).fetch("date"))
 		end
 
-    private
+		def next_uid key; @uid_store.member?(key) ?  Marshal.load(@uid_store[key]).to_i : 1 end
+		def increment_next_uid key, value; @uid_store[key] = Marshal.dump(value.to_i) end
+		def get_uids key; @uid_store.member?(key) ? Marshal.load(@uid_store[key]).to_hash : {} end
+		def write_uids key, value; @uid_store[key] = Marshal.dump(value.to_hash) end
+
+		private
 
 		def format_label_to_imap!(label)
 			unless /^\~/.match(label) or SPECIAL_MAILBOXES.key?(label)
@@ -583,115 +508,6 @@ class Ximapd
 			end
 		end
 
-    #def override_commit_new(db)
-      #def db.commit_new(f)
-        #f.truncate(0)
-        #f.rewind
-        #new_file = @filename + ".new"
-        #File.open(new_file) do |nf|
-          #nf.binmode
-          #FileUtils.copy_stream(nf, f)
-        #end
-        #f.fsync
-        #File.unlink(new_file)
-      #end
-    #end
-
-    #def convert_old_mailbox_db
-      #if @mailbox_db.root?("status")
-        #@uid_seq.current = @mailbox_db["status"]["last_uid"]
-        #@uidvalidity_seq.current = @mailbox_db["status"]["uidvalidity"]
-        #@mailbox_id_seq.current = @mailbox_db["status"]["last_mailbox_id"]
-        #@mailbox_db.delete("status")
-      #end
-      #if @mailbox_db.root?("mailing-lists")
-        #for key, val in @mailbox_db["mailing-lists"]
-          #@mailbox_db["mailing_lists"][key] = {
-            #"creator_uid" => val
-          #}
-        #end
-        #@mailbox_db.delete("mailing-lists")
-      #end
-      #@mailbox_db["mailboxes"]["static"] ||= {
-        #"flags" => "\\Noselect"
-      #}
-    #end
-
-    #def strip_unix_from(str, indate)
-      #str.sub!(/\AFrom\s+\S+\s+(.*)\r\n/) do
-        #if indate.nil?
-          #begin
-            #indate = DateTime.strptime($1 + " " + TIMEZONE,
-                                       #"%a %b %d %H:%M:%S %Y %z")
-          #rescue
-          #end
-        #end
-        #""
-      #end
-      #return indate
-    #end
-
-    #def mkdir_p(dirname)
-      #if /\A\//n.match(dirname)
-        #raise "can't specify absolute path"
-      #end
-      #if dirname == "." ||
-        #@mailbox_db["mailboxes"].include?(dirname)
-        #return
-      #end
-      #mkdir_p(File.dirname(dirname))
-      #@mailbox_db["mailboxes"][dirname] = {
-        #"flags" => "\\Noselect"
-      #}
-    #end
-
-    #def import_mail_internal(str, mailbox_name = nil, flags = "", indate = nil, override = {})
-      #uid = get_next_uid
-      #mail = parse_mail(str, uid, flags, indate, override)
-      #@mailbox_db.transaction do
-        #if mailbox_name
-          #mailbox = get_mailbox(mailbox_name)
-        #else
-          #mailbox = nil
-          #for plugin in @plugins
-            #begin
-              #mbox_name = plugin.filter(mail)
-              #if mbox_name == "REJECT"
-                #@logger.add(Logger::INFO, "rejected: from=<#{mail.properties['from']}> subject=<#{mail.properties['subject'].gsub(/[ \t]*\n[ \t]+/, ' ')}> date=<#{mail.properties['date']}>")
-                #return 0
-              #end
-              #if mbox_name
-                #mailbox = get_mailbox(mbox_name)
-                #break
-              #end
-            #rescue Exception => e
-              #@logger.log_exception(e)
-            #end
-          #end
-          #mailbox ||= DefaultMailbox.new(self)
-        #end
-        #mailbox.import(mail)
-        #@logger.add(Logger::INFO, "imported: uid=#{mail.uid} from=<#{mail.properties['from']}> subject=<#{mail.properties['subject'].gsub(/[ \t]*\n[ \t]+/, ' ')}> date=<#{mail.properties['date']}> mailbox=<#{mailbox.name}>")
-      #end
-      #return mail.uid
-    #end
-
-    #def get_mailbox_name_from_x_ml_name(s)
-      #mbox = s.slice(/(.*) <.*>/u, 1) 
-      #if mbox.nil?
-        #mbox = s.slice(/<(.*)>/u, 1) 
-        #if mbox.nil?
-          #mbox = s.slice(/\S+@[^ \t;]+/u) 
-          #if mbox.nil?
-            #mbox = s
-          #end
-        #end
-      #end
-      #return mbox
-    #end
-
-
-
     def extract_query(mailbox_name)
       s = mailbox_name.slice(/\Aqueries\/(.*)/u, 1)
       return nil if s.nil?
@@ -705,96 +521,6 @@ class Ximapd
         raise InvalidQueryError.new("invalid query")
       end
     end
-
-
-
-
-
-    #def reindex_month(dir)
-      #filenames = []
-      #Find.find(dir) do |filename|
-        #if File.file?(filename) && /\/\d+\z/.match(filename)
-          #filenames.push(filename)
-        #end
-      #end
-      #if @config["progress"]
-        #month = dir.slice(/\d+\/\d+\z/)
-        #progress_bar = ProgressBar.new(month, filenames.length)
-      #else
-        #progress_bar = NullObject.new
-      #end
-      #for filename in filenames
-        #reindex_mail(filename)
-        #progress_bar.inc
-      #end
-      #progress_bar.finish
-    #end
-
-    #def reindex_mail(filename)
-      #begin
-        #str = File.read(filename)
-        #uid = filename.slice(/\/(\d+)\z/, 1).to_i
-        #flags = @backend.get_old_flags(uid) || "\\Seen"
-        #indate = File.mtime(filename)
-        #mail = parse_mail(str, uid, flags, indate)
-        #begin
-          #mail.properties["mailbox-id"] =
-            #File.read(filename + ".mailbox-id").to_i
-        #rescue Errno::ENOENT
-        #end
-        #@mailbox_db.transaction do
-          #index_mail(mail, filename)
-        #end
-      #rescue StandardError => e
-        #@logger.log_exception(e)
-      #end
-    #end
-
-    #def parse_mail(mail, uid, flags, indate, override = {})
-      #mail.gsub!(/\r?\n/, "\r\n")
-      #indate = strip_unix_from(mail, indate)
-      #if indate
-        #indate = indate.to_time.getlocal.to_datetime
-      #else
-        #indate = DateTime.now
-      #end
-      #properties = Hash.new("")
-      #properties["uid"] = uid
-      #properties["size"] = mail.size
-      #properties["flags"] = ""
-      #properties["internal-date"] = indate.to_time.getlocal.strftime("%Y-%m-%dT%H:%M:%S")
-      #properties["date"] = properties["internal-date"]
-      #properties["x-mail-count"] = 0
-      #properties["mailbox-id"] = 0
-      #begin
-        #m = @mail_parser.parse(mail.gsub(/\r\n/, "\n"))
-        #properties = extract_properties(m, properties, override)
-        #body = extract_body(m)
-      #rescue Exception => e
-        #@logger.log_exception(e, "failed to parse mail uid=#{uid}",
-                              #Logger::WARN)
-        #header, body = *mail.split(/^\r\n/)
-        #body = to_utf8(body, @default_charset)
-      #end
-      #return MailData.new(mail, uid, flags, indate, body, properties,
-                          #m || NullMessage.new)
-    #end
-
-    #def get_mailbox_id(mailbox_name)
-      #if mailbox_name.nil?
-        #mailbox_id = 0
-      #else
-        #mailbox = @mailbox_db["mailboxes"][mailbox_name]
-        #if mailbox.nil?
-          #raise NoMailboxError.new("no such mailbox")
-        #end
-        #mailbox_id = mailbox["id"]
-        #if mailbox_id.nil?
-          #raise MailboxAccessError.new("can't import to mailbox without id")
-        #end
-      #end
-      #return mailbox_id
-    #end
 
     def get_next_uid
       return @uid_seq.next

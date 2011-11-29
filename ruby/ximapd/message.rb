@@ -8,20 +8,18 @@ require 'timeout'
 class Ximapd
 class InvalidMessageError < StandardError; end
 class Message
-  def initialize messageinfos, mail_store
+  def initialize messageinfos, mailbox, heliotropeclient
 		@messageinfos = messageinfos
-		@mail_store = mail_store
-    @mime_parts = {}
+		@mailbox = mailbox
+		@heliotropeclient = heliotropeclient
 
 # These fields shouldn't change, so it is safe to have them once and for
 # all
 
 		@msgid = messageinfos["email_message_id"]
     @safe_msgid = munge_msgid @msgid
-
 		@from = Person.from_string messageinfos["from"]
 		@date = messageinfos["date"] #careful : this is UNIX time
-
 		@to = Person.many_from_string messageinfos["to"].join(",")
 		@cc = Person.many_from_string messageinfos["cc"].join(",")
 		@bcc = Person.many_from_string messageinfos["bcc"].join(",")
@@ -29,43 +27,71 @@ class Message
 		@reply_to = Person.from_string messageinfos["reply_to"]
 		@refs = messageinfos["refs"]
     @safe_refs = @refs.map { |r| munge_msgid(r) }
-
-
 		@recipient_email = messageinfos["recipient_email"]
 		@list_subscribe = messageinfos["list_subscribe"]
 		@list_unsubscribe = messageinfos["list_unsubscribe"]
 		@list_post = messageinfos["list_post"]
-
 		@mime_parts = messageinfos["parts"]
-
-# but labels can change, so we should ALWAYS fetch for them
-
-# These are internal, but can help
-		@uid = messageinfos["message_id"]
-		@thread_id = messageinfos["thread_id"] # we should check for it, because it can also change
-
-
-    
 
     self
   end
 
-  attr_reader :msgid, :from, :to, :cc, :bcc, :subject, :date, :refs, :recipient_email, :list_post, :list_unsubscribe, :list_subscribe, :reply_to, :safe_msgid, :safe_refs
+#attr_reader :msgid, :from, :to, :cc, :bcc, :subject, :date, :refs, :recipient_email, :list_post, :list_unsubscribe, :list_subscribe, :reply_to, :safe_msgid, :safe_refs
 
-# aliases for IMAP
-	attr_reader :uid
-	def seqno; @uid end
+	def uid; @mailbox.uid_for_message_id(@messageinfos["message_id"]) end
+
+	def seqno; @mailbox.seqno_for_uid(uid) end
 
 	def flags(get_recent=true)
 		# get flags AND labels as a string
- 		@mail_store.fetch_labels_and_flags_for_uid(@uid).join(" ")
+		@mailbox.fetch_labels_and_flags_for_uid uid
+	end
+
+	def return_flags(flags_to_treat, mode)
+		case mode
+		when :set
+
+			# IMAP clients will only set message state, not heliotrope labels.
+			# We can separate them
+			flags_labels_list = flags - MailStore::MESSAGE_STATE.to_a
+			flags_return = flags_labels_list + flags_to_treat
+
+			# remove ~unread if flags_return contains \Seen
+			flags_return -= ["\~unread"] if flags_return.include?('\\Seen')
+
+      return flags_return.join(" ")
+
+		when :add
+
+			flags_return = flags
+      flags_return |= flags_to_treat
+
+			# remove ~unread if flags_return contains \Seen
+			flags_return -= ["\~unread"] if flags_return.include?('\\Seen')
+
+      return flags_return.join(" ")	
+
+		when :remove
+
+      flags_return = flags
+      flags_return -= flags_to_treat
+
+			# add ~unread if flags_to_treat contains \Seen
+			flags.push("~unread") if @flags.include?("\\Seen")
+      return flags.join(" ")
+
+		else
+
+			puts "; no mode found ..."
+
+		end
 	end
 
 	def labels; flags end
 
 	def flags=(flags)
 		# set flags AND labels with flags a string
-		@mail_store.set_labels_and_flags_for_uid(@uid, flags.split)
+		@mailbox.set_labels_and_flags_for_uid(uid, flags.split)
 	end
 
 	def internal_date
@@ -76,7 +102,7 @@ class Message
 		# TODO: verify if this is really conform with RFC2822
 		# Get the rawbody only at that time, because some people still send
 		# gigabytes of sh*t through emails, so it can be very large.
-		@mail_store.fetch_rawbody_for_uid(@uid).bytesize
+		fetch_rawbody_for_uid(uid).bytesize
 	end
 
 	def envelope
@@ -103,12 +129,12 @@ class Message
 		if part
 			return get_part(part).body.to_s.slice(/.*?\n\n/mn).gsub(/\n/, "\r\n")
 		else
-			@mail_store.fetch_rawbody_for_uid(@uid).split(/\n\n/).first + "\n\n"
+			fetch_rawbody_for_uid(uid).split(/\n\n/).first + "\n\n"
 		end
 	end
 
 	def body
-		rawbody = @mail_store.fetch_rawbody_for_uid(@uid)
+		rawbody = fetch_rawbody_for_uid(uid)
 		body_from_rawbody rawbody
 	end
 		
@@ -205,7 +231,7 @@ class Message
 	end
 
 	def to_s
-		@mail_store.fetch_rawbody_for_uid @uid
+		@mailbox.fetch_rawbody_for_uid uid
 	end
 
 	def self.validate(rawbody)
@@ -386,7 +412,7 @@ private
 
 	def parsed_mail
 		if @parsed_mail.nil?
-			@parsed_mail = RMail::Parser.read(@mail_store.fetch_rawbody_for_uid(@uid))
+			@parsed_mail = RMail::Parser.read(fetch_rawbody_for_uid(uid))
 		end
 		return @parsed_mail
 	end

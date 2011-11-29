@@ -39,4 +39,5 @@ class Ximapd
   class InvalidQueryError < StandardError; end
   class IdleTerminated < Exception; end
 	class MessageNotValidError < Exception; end
+	class NotToDeleteError < Exception; end
 end

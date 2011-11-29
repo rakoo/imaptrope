@@ -412,7 +412,7 @@ class Ximapd
     def send_tagged_ok_append
 			mailbox_status = @mail_store.get_mailbox_status(@mailbox_name, "fake") #TODO remove the 2nd arg
 			uidvalidity = mailbox_status.uidvalidity
-			@session.send_tagged_ok(@tag, "[APPENDUID %s %s]", uidvalidity, @response["doc_id"])
+			@session.send_tagged_ok(@tag, "[APPENDUID %s %s]", uidvalidity, @response[:uid])
     end
 
     def exec
@@ -492,18 +492,17 @@ class Ximapd
       deleted_seqnos = nil
       @session.synchronize do
         @session.sync
-        mailbox = @session.get_current_mailbox
-        uids = mailbox.uid_search(mailbox.query&FlagQuery.new("\\Deleted"))
-        deleted_mails = mailbox.uid_fetch(uids).reverse
+        @mailbox = @session.get_current_mailbox
+        uids = @mailbox.uid_search(@mailbox.query&FlagQuery.new("\\Deleted"))
+        deleted_mails = @mailbox.uid_fetch(uids).reverse
         deleted_seqnos = deleted_mails.collect { |mail|
           mail.seqno
         }
-#no
-#@mail_store.delete_mails(deleted_mails)
       end
       for seqno in deleted_seqnos
-        @session.send_data("%d EXPUNGE", seqno)
-        @session.push_queued_response(@session.current_mailbox, "#{seqno} EXISTS")
+				ret = @mail_store.delete_mail(@mailbox, seqno)
+        @session.send_data("%d EXPUNGE", ret)
+        @session.push_queued_response(@session.current_mailbox, "#{ret} EXISTS")
       end
       @session.send_queued_responses
       send_tagged_ok
@@ -877,13 +876,7 @@ class Ximapd
 
   class SetFlagsStoreAtt < FlagsStoreAtt
     def get_new_flags(mail)
-			@flags.push("~unread") if !@flags.include?("\\Seen")
-
-			# remove everything if @flags contains \Deleted
-			# Yes, that's auto-expunge. But we never delete mails
-			@flags = [] if @flags.include?("\\Deleted")
-
-      return @flags.join(" ")
+			mail.return_flags(@flags, :set)
     end
   end
 
@@ -895,33 +888,13 @@ class Ximapd
 		end
 
     def get_new_flags(mail)
-      flags = mail.flags(false).split(/ /)
-      flags |= @flags
-
-			# remove ~unread if @flags contains \Seen
-			flags.delete_if{ |f| /\~unread/.match(f)} if @flags.include?('\\Seen')
-
-			# remove mailbox_name if @flags contains \Deleted
-			# Yes, that's auto-expunge. But we never delete mails
-			if @flags.include?("\\Deleted")
-				mailbox_regexp = Regexp.new(@session.mail_store.current_mailbox)
-				flags.delete_if{ |f| mailbox_regexp.match(f)}
-				
-				flags -= ["\\Deleted"]
-			end
-
-      return flags.join(" ")
+			mail.return_flags(@flags, :add)
     end
   end
 
   class RemoveFlagsStoreAtt < FlagsStoreAtt
     def get_new_flags(mail)
-      flags = mail.flags(false).split(/ /)
-      flags -= @flags
-
-			# add ~unread if @flags contains \Seen
-			flags.push("~unread") if @flags.include?("\\Seen")
-      return flags.join(" ")
+			mail.return_flags(@flags, :remove)
     end
   end
 
@@ -955,7 +928,7 @@ class Ximapd
 
 		# supersede to be conform to UIDPLUS
     def send_tagged_ok_copy
-			mailbox_status = @mail_store.get_mailbox_status(@mailbox_name, "fake") #TODO remove the 2nd arg
+			mailbox_status = @mail_store.get_mailbox_status(@mailbox_name)
 			uidvalidity = mailbox_status.uidvalidity
 			seq_before = @sequence_set
 
@@ -967,22 +940,17 @@ class Ximapd
     def exec
       mails = nil
       dest_mailbox = nil
+
       @session.synchronize do
         mailbox = @session.get_current_mailbox
         mails = fetch_mails(mailbox, @sequence_set)
 				dest_mailbox = @mail_store.get_mailbox(@mailbox_name)
       end
-      override = {"x-ml-name" => dest_mailbox["list_id"] || ""}
+
 			@session.synchronize do
-#@mail_store.plugins.fire_event(:on_copy, mail, dest_mailbox)
-          #uid = @mail_store.import_mail(mail.to_s, dest_mailbox.name,
-                                        #mail.flags(false), mail.internal_date,
-                                        #override)
-          #dest_mail = dest_mailbox.uid_fetch([uid]).first
-#@mail_store.plugins.fire_event(:on_copied, mail, dest_mail)
 				@seq_after = @mail_store.copy_mails_to_mailbox(mails, dest_mailbox)
-				
 			end
+
       n = @mail_store.get_mailbox_status(@mailbox_name, true).messages
       @session.push_queued_response(@mailbox_name, "#{n} EXISTS")
       send_tagged_ok_copy
