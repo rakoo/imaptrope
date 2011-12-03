@@ -36,15 +36,13 @@ class Message
     self
   end
 
-#attr_reader :msgid, :from, :to, :cc, :bcc, :subject, :date, :refs, :recipient_email, :list_post, :list_unsubscribe, :list_subscribe, :reply_to, :safe_msgid, :safe_refs
-
 	def uid; @mailbox.uid_for_message_id(@messageinfos["message_id"]) end
 
 	def seqno; @mailbox.seqno_for_uid(uid) end
 
 	def flags(get_recent=true)
 		# get flags AND labels as a string
-		@mailbox.fetch_labels_and_flags_for_uid uid
+		@mailbox.fetch_labels_and_flags_for_uid(uid)
 	end
 
 	def return_flags(flags_to_treat, mode)
@@ -237,8 +235,8 @@ class Message
 	def self.validate(rawbody)
 		m = Mail.read_from_string rawbody
 
-		raise MessageNotValidError.new("No from field") if m[:from].nil?
-		raise MessageNotValidError.new("no to field") if m[:to].nil?
+		raise InvalidMessageError.new("No from field") if m[:from].nil?
+		raise InvalidMessageError.new("no to field") if m[:to].nil?
 
 		# add a Message-Id field if necessary
 		unless m[:message_id]
