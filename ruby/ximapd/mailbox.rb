@@ -58,16 +58,21 @@ class Ximapd
 			labels = (labels + [hlabel]).compact.uniq
 
 			#validate the message
-			begin
-				validated_message = Message.validate(message)
+			# TODO: use a timeout
+			validated_message = begin
+				Message.validate(message)
+			rescue InvalidMessageerror => e
+				puts "; [ERROR] Invalid message : #{e.inspect}"
+
+				# pass the message as-is, pray it works
+				message
 			end
-			
+
 			validated_message = validated_message.force_encoding("binary") if
 				validated_message.respond_to?(:force_encoding)
 
 			# try to add the message
 			status = @heliotropeclient.add_message(validated_message, :labels => labels, :state => state)
-			puts "inspect : #{status.inspect}"
 
 			if status["status"] == "seen"
 				# Message already exists; set labels and state
@@ -165,18 +170,18 @@ class Ximapd
 		end
 
 		def fetch_rawbody_for_uid(uid)
-			@heliotropeclient.raw_message uids[uid]
+			@heliotropeclient.raw_message message_ids_as_uids[uid]
 		end
 
 		def seqno_for_uid(uid)
 			seq = message_ids_as_seq
-			message_id = uids[uid]
+			message_id = message_ids_as_uids[uid]
 
 			seq.key(message_id)
 		end
 
 		def uid_for_message_id(message_id)
-			uids.key(message_id)
+			message_ids_as_uids.key(message_id)
 		end
 
 		def fetch_labels_and_flags_for_uid(uid)
@@ -185,42 +190,16 @@ class Ximapd
 			uids_list = message_ids_as_uids
 			message_id = uids_list[uid]
 
-			puts "; fetching flags for mail #{uid}:#{message_id} in #{@name} with uids : #{uids_list}"
-			messageinfos = 	@heliotropeclient.message(message_id)
-			messageinfos.fetch("labels").each do |l|
-				out << "~#{l}" 
-			end
-
-			messageinfos.fetch("state").each do |s|
-				out << MailStore::SPECIAL_MAILBOXES.key(s)
-			end
-
-			out << "\\Seen" unless out.include?("~unread")
-			out.compact.uniq
+			@mail_store.fetch_labels_and_flags_for_message_id message_id
 		end
 
 		def set_labels_and_flags_for_uid(uid, flags)
-			message_id = uids[uid]
-			messageinfos = @heliotropeclient.message(message_id)
-			thread_id = messageinfos["thread_id"]
-			message_id = messageinfos["message_id"]
-
-			flags.map! do |f|
-				format_label_from_imap_to_heliotrope!(f)
-			end.compact!
-
-			# separate flags between labels and state
-			state = flags & MailStore::MESSAGE_STATE.to_a
-			labels = flags - state
-
-			@heliotropeclient.set_labels! thread_id, labels
-			@heliotropeclient.set_state! message_id, state
-
-			@heliotropeclient.message message_id
+			message_id = message_ids_as_uids[uid]
+			@mail_store.set_labels_and_flags_for_message_id message_id, flags
 		end
 
 		def remove_mail(uid_to_remove)
-			uids_list = uids
+			uids_list = message_ids_as_uids
 			uids_list.delete_if { |k,v| k == uid_to_remove}
 			write_uids uids_list
 		end
@@ -252,7 +231,15 @@ class Ximapd
 		private
 
 		def message_ids_as_uids
-			uids
+			if @name == "All Mail"
+				# there is no uids_list because all mails are added to All Mail
+				# anyway, so it's { 1 => 1, 2 => 2, ...}
+				out = {}
+				(1..@heliotropeclient.size).each.with_index { |value, index| out[index+1] = value}
+				return out
+			else
+				return uids
+			end
 		end
 
 		def message_ids_as_seq
@@ -299,6 +286,8 @@ class Ximapd
 		end
 
 		def fetch_internal(sequence_set, assoc)
+
+			puts "; fetching #{sequence_set} in #{assoc}"
 			
 			mails = []
 # mails_in_mailbox contains all the mails in the mailbox. When the
@@ -328,9 +317,12 @@ class Ximapd
 		def prepare(sequence_set)
 			# if sequence_set is 1..-1, it means all mails
 			# 3..-1 => 3 to the end
-			uids = message_ids_as_seq
-			sequence_set.first .. uids.keys.last
+			uids_list = message_ids_as_seq
+			sequence_set.first .. uids_list.keys.last
 		end
+
+		# correspondance between uid in this mailbox
+		# and message_id in heliotrope (which is absolute)
 
 		def next_uid
 			key = "#{@name}/next"

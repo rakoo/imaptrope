@@ -130,7 +130,7 @@ class Ximapd
       super()
       @config = config
       @logger = @config["logger"]
-			@heliotropeclient = HeliotropeClient.new "http://localhost:8043"
+			@heliotropeclient = HeliotropeClient.new "http://localhost:8042"
 
       @path = File.expand_path(@config["data_dir"])
       FileUtils.mkdir_p(@path)
@@ -153,7 +153,7 @@ class Ximapd
 
 			# UIDs ore unique to a mailbox, but this is incompatible with
 			# heliotrope, where message_ids are unique through the whole mailstore
-			@uid_store = LevelDB::DB.new File.join(@path, "UID_store")
+			@uid_store = LevelDB::DB.new File.join(@path, "uidstore")
     end
 
     def close
@@ -354,7 +354,7 @@ class Ximapd
 
 			data = Hash.new
 			data['heliotrope-client'] = @heliotropeclient
-			data['UID_store'] = @UID_store
+			data['logger'] = @logger
 			return HeliotropeFakeMailbox.new(self, name, data)
     end
 
