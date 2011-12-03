@@ -448,7 +448,7 @@ class Ximapd
 # messageinfos ?
 		def fetch_labels_and_flags_for_message_id(message_id)
 			out = []
-			messageinfos = 	@heliotropeclient.message(message_id)
+			messageinfos = 	@heliotropeclient.messageinfos(message_id)
 			messageinfos.fetch("labels").each do |l|
 				out << "~#{l}" 
 			end
@@ -462,7 +462,7 @@ class Ximapd
 		end
 
 		def set_labels_and_flags_for_message_id(message_id, flags)
-			messageinfos = @heliotropeclient.message(message_id)
+			messageinfos = @heliotropeclient.messageinfos(message_id)
 			thread_id = messageinfos["thread_id"]
 			message_id = messageinfos["message_id"]
 
@@ -477,11 +477,11 @@ class Ximapd
 			@heliotropeclient.set_labels! thread_id, labels
 			@heliotropeclient.set_state! message_id, state
 
-			@heliotropeclient.message message_id
+			@heliotropeclient.messageinfos message_id
 		end
 
 		def fetch_date_for_uid(uid)
-			Time.at(@heliotropeclient.message(uid).fetch("date"))
+			Time.at(@heliotropeclient.messageinfos(uid).fetch("date"))
 		end
 
 		def next_uid key; @uid_store.member?(key) ?  Marshal.load(@uid_store[key]).to_i : 1 end

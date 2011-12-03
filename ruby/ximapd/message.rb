@@ -15,6 +15,7 @@ class Message
 
 # These fields shouldn't change, so it is safe to have them once and for
 # all
+# TODO this is all false
 
 		@msgid = messageinfos["email_message_id"]
     @safe_msgid = munge_msgid @msgid

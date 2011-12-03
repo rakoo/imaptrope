@@ -63,7 +63,6 @@ class Ximapd
 				Message.validate(message)
 			rescue InvalidMessageerror => e
 				puts "; [ERROR] Invalid message : #{e.inspect}"
-
 				# pass the message as-is, pray it works
 				message
 			end
@@ -300,11 +299,11 @@ class Ximapd
 				when Range
 					atom = prepare(atom)
 					atom.each do |ind|
-						messageinfos = @heliotropeclient.message assoc.fetch(ind)
+						messageinfos = @heliotropeclient.messageinfos assoc.fetch(ind)
 						mails.push(Message.new(messageinfos, self, @heliotropeclient))
 					end
 				else
-					messageinfos = @heliotropeclient.message assoc.fetch(atom)
+					messageinfos = @heliotropeclient.messageinfos assoc.fetch(atom)
 					mails.push(Message.new(messageinfos, self, @heliotropeclient))
 				end
 			end
