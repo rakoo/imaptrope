@@ -417,7 +417,13 @@ class Ximapd
 
     def exec
       @session.synchronize do
-        @response = @mail_store.append_mail(@message, @mailbox_name, @flags)
+				begin
+					@logger.debug "appending in command"
+					@response = @mail_store.append_mail(@message, @mailbox_name, @flags)
+					@logger.debug "append ok in command"
+				rescue MailboxExistError => e
+					@logger.debug e.inspect
+				end
         n = @mail_store.get_mailbox_status(@mailbox_name, true).messages
         @session.push_queued_response(@mailbox_name, "#{n} EXISTS")
       end
@@ -642,7 +648,7 @@ class Ximapd
 
   class FlagsFetchAtt
     def fetch(mail)
-      return format("FLAGS (%s)", mail.flags)
+      return format("FLAGS (%s)", mail.flags.join(" "))
     end
   end
 
@@ -728,7 +734,7 @@ class Ximapd
               flags += " \\Seen"
             end
             mail.flags = flags
-            result += format(" FLAGS (%s)", flags)
+            result += format(" FLAGS (%s)", flags.join(" "))
           end
         end
         return result
@@ -833,11 +839,11 @@ class Ximapd
     end
 
     def send_fetch_response(mail, flags)
-      @session.send_data("%d FETCH (FLAGS (%s))", mail.seqno, flags)
+      @session.send_data("%d FETCH (FLAGS (%s))", mail.seqno, flags.join(" "))
     end
 
     def queue_fetch_response(mail, flags)
-      @session.push_queued_response(@session.current_mailbox, "#{mail.seqno} FETCH (FLAGS (#{flags}))")
+      @session.push_queued_response(@session.current_mailbox, "#{mail.seqno} FETCH (FLAGS (#{flags.join(' ')}))")
     end
   end
 
@@ -850,11 +856,11 @@ class Ximapd
 
     def send_fetch_response(mail, flags)
       @session.send_data("%d FETCH (FLAGS (%s) UID %d)",
-                         mail.seqno, flags, mail.uid)
+                         mail.seqno, flags.join(" "), mail.uid)
     end
 
     def queue_fetch_response(mail, flags)
-      @session.push_queued_response(@session.current_mailbox, "#{mail.seqno} FETCH (FLAGS (#{flags}) UID #{mail.uid})")
+      @session.push_queued_response(@session.current_mailbox, "#{mail.seqno} FETCH (FLAGS (#{flags.join(' ')}) UID #{mail.uid})")
     end
   end
 
