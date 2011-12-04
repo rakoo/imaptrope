@@ -17,22 +17,22 @@ class Message
 # all
 # TODO this is all false
 
-		@msgid = messageinfos["email_message_id"]
-    @safe_msgid = munge_msgid @msgid
-		@from = Person.from_string messageinfos["from"]
 		@date = messageinfos["date"] #careful : this is UNIX time
-		@to = Person.many_from_string messageinfos["to"].join(",")
-		@cc = Person.many_from_string messageinfos["cc"].join(",")
-		@bcc = Person.many_from_string messageinfos["bcc"].join(",")
+		@msgid = messageinfos["message_id"]
+		@from = Person.from_string messageinfos["from"]
+		@to = Person.many_from_string(messageinfos["to"].join(","))
+		@cc = Person.many_from_string(messageinfos["cc"].join(",")) unless messageinfos["cc"].nil?
+		@bcc = Person.many_from_string(messageinfos["bcc"].join(",")) unless messageinfos["bcc"].nil?
 		@subject = messageinfos["subject"]
 		@reply_to = Person.from_string messageinfos["reply_to"]
 		@refs = messageinfos["refs"]
-    @safe_refs = @refs.map { |r| munge_msgid(r) }
 		@recipient_email = messageinfos["recipient_email"]
 		@list_subscribe = messageinfos["list_subscribe"]
 		@list_unsubscribe = messageinfos["list_unsubscribe"]
 		@list_post = messageinfos["list_post"]
 		@mime_parts = messageinfos["parts"]
+
+		@email_message_id = messageinfos["email_message_id"]
 
     self
   end
@@ -84,17 +84,18 @@ class Message
 	def get_header(part=nil)
 # I don't know about this one, should we display only the message
 # header, or the header for each part ? For the moment, I'm being lazy
-
-		if part
-			return get_part(part).body.to_s.slice(/.*?\n\n/mn).gsub(/\n/, "\r\n")
-		else
-			fetch_rawbody_for_uid(uid).split(/\n\n/).first + "\n\n"
-		end
+		#if part
+			#return get_part(part).body.to_s.slice(/.*?\n\n/mn).gsub(/\n/, "\r\n")
+		#else
+			#fetch_rawbody_for_uid(uid).split(/\n\n/).first + "\n\n"
+		#end
+		parsed_mail.header
 	end
 
 	def body
-		rawbody = fetch_rawbody_for_uid(uid)
-		body_from_rawbody rawbody
+		parsed_mail.body
+		#rawbody = fetch_rawbody_for_uid(uid)
+		#body_from_rawbody rawbody
 	end
 		
 
@@ -173,8 +174,7 @@ class Message
   end
 
 	def multipart?
-		mail = parsed_mail
-		return mail.multipart?
+		return parsed_mail.multipart?
 	end
 
 	def mime_header(part)
@@ -190,7 +190,7 @@ class Message
 	end
 
 	def to_s
-		@mailbox.fetch_rawbody_for_uid uid
+		parsed_mail.to_s
 	end
 
 	def self.validate(rawbody)
@@ -211,20 +211,15 @@ class Message
 		m.to_s
 	end
 
-	def self.safe_msgid
-		m = mail.read_from_string rawbody
-		if m[:message_id]
-			return munge_msgid m[:message_id]
-		else
-			raise MessageNotValidError.new("Message has no Messag-ID")
-		end
-	end
-
 private
 
-	def body_from_rawbody(rawbody)
-		rawbody.split(/\r+?\n+?\r+?\n+?/).drop(1).join("\n\n")
+	def parsed_mail
+		@parsed_mail ||= Mail.read_from_string @heliotropeclient.raw_message @msgid
 	end
+
+	#def body_from_rawbody(rawbody)
+		#rawbody.split(/\r+?\n+?\r+?\n+?/).drop(1).join("\n\n")
+	#end
 		
 
 	def get_part(part)
@@ -327,15 +322,6 @@ private
 		return fields.join(" ")
 	end
 
-  ## hash the fuck out of all message ids. trust me, you want this.
-  def munge_msgid msgid
-    Digest::MD5.hexdigest msgid
-  end
-
-  def self.find_msgids msgids
-    msgids.scan(/<(.+?)>/).map(&:first)
-  end
-
   def mime_part_types part=@m
     ptype = part.header["content-type"] || ""
     [ptype] + (part.multipart? ? part.body.map { |sub| mime_part_types sub } : [])
@@ -366,15 +352,6 @@ private
       [[type, filename, id, content]]
     end
   end
-
-private
-
-	def parsed_mail
-		if @parsed_mail.nil?
-			@parsed_mail = RMail::Parser.read(fetch_rawbody_for_uid(uid))
-		end
-		return @parsed_mail
-	end
 
 	def body_ext_mpart(mail)
 		exts = []
