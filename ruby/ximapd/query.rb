@@ -142,7 +142,7 @@ class Ximapd
     private
 
     def operator
-      return "OR"
+      return "-"
     end
   end
 
