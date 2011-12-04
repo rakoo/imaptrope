@@ -135,7 +135,7 @@ class Ximapd
 			new_query = format(query)
 
 			puts "; query : #{new_query}"
-			result = @heliotropeclient.search new_query  # fetches threads
+			result = @mail_store.search_in_heliotrope new_query  # fetches threads
 
 			thread_ids = []
 			result.each do |thread|
@@ -248,7 +248,7 @@ class Ximapd
 			if query.nil? or query.empty?
 				threads_in_mailbox = (1..@heliotropeclient.size).to_a
 			else
-				threads_in_mailbox = @heliotropeclient.search(query).map{|threadinfos| threadinfos["thread_id"]}
+				threads_in_mailbox = @mail_store.search_in_heliotrope(query).map{|threadinfos| threadinfos["thread_id"]}
 			end
 
 			threads_in_mailbox.sort!

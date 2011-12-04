@@ -255,10 +255,8 @@ class Ximapd
 			#sublabels
 			hlabel = format_label_from_imap_to_heliotrope!(name)
 			
-			count = @heliotropeclient.count name
-			messageinfos = @heliotropeclient.search name, count # careful ! labels here are without the ~ !
-
-			messageinfos.each do |m|
+			threadinfos = search_in_heliotrope name
+			threadinfos.each do |m|
 				new_labels = m["labels"]
 			  new_labels -= [hlabel] 
 				puts "old labels : #{m["labels"]}"
@@ -295,8 +293,8 @@ class Ximapd
 
 			thread_infos = []
 			count = @heliotropeclient.count name
-			messageinfos = @heliotropeclient.search name, count # careful ! labels here are without the ~ !
-			messageinfos.each do |m|
+			threadinfos = search_in_heliotrope name
+			threadinfos.each do |m|
 				new_labels = m["labels"]
 				new_labels += [hnew_name]
 			  new_labels -= [hname] unless hname == "inbox" # if the old label is inbox, duplicate instead of moving : RFC
@@ -488,6 +486,29 @@ class Ximapd
 		def increment_next_uid key, value; @uid_store[key] = Marshal.dump(value.to_i) end
 		def get_uids key; @uid_store.member?(key) ? Marshal.load(@uid_store[key]).to_hash : {} end
 		def write_uids key, value; @uid_store[key] = Marshal.dump(value.to_hash) end
+
+		def search_in_heliotrope pattern
+			total_size = @heliotropeclient.count pattern
+			iterator, rest = total_size.divmod(300)
+			threadinfos = []
+			
+			if iterator > 0
+				(0..iterator).each do |i|
+					start = 300*i + 1
+					num = (total_size > start + 300) ?  300 : rest
+
+					threadinfos << @heliotropeclient.search(pattern, num, start)
+				end
+			else
+				threadinfos << @heliotropeclient.search(pattern, rest, 1)
+			end
+				
+			threadinfos.flatten!
+			puts "; found #{threadinfos.size}"
+#puts "; found these threads : #{threadinfos.map{|t| t["thread_id"]}}"
+
+			threadinfos
+		end
 
 		private
 
