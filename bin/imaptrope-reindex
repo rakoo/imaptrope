@@ -1,0 +1,94 @@
+#!/usr/bin/env ruby
+
+# Reindex the uidstore
+# Idea : 
+# * get all mails in All Mail
+# * read flags
+# * write the uids
+# * TODO : increment UIDVALIDITY of the mailbox
+
+require 'heliotrope-client'
+require 'trollop'
+require 'leveldb'
+
+opts = Trollop::options do
+	banner <<EOS
+Reindex the uids for the mailboxes
+Options :
+EOS
+	opt :url, "URL of the heliotrope server", :default => "http://localhost:8042"
+	opt :location, "location of the old index folder (will not be erased)", :default => "."
+end
+
+dirname = File.join(opts.location, "uidstore-reindexed")
+abort("#{dirname} already exists, please delete/mv it") if File.exists? dirname
+uid_store = LevelDB::DB.new dirname
+hc = HeliotropeClient.new opts.url
+
+## get the size of the heliotrope message base
+size = hc.size
+
+## get labels and state that we want to save
+SPECIAL_MAILBOXES = {
+	"\\Starred"	=>	"starred",
+	"\\Seen"	=>	nil,
+	"\\Deleted"	=>	"deleted",
+	nil	=>	"unread",
+	"\\Answered" => nil,
+	"\\Draft" => "draft",
+	"Sent"	=> "sent",
+	"All Mail" => nil,
+	"INBOX" => "inbox"
+}
+
+flags = Set.new(hc.labels)
+out = []
+flags.each do |label|
+	out << label unless SPECIAL_MAILBOXES.value?(label)
+end
+SPECIAL_MAILBOXES.keys.each do |m|
+	out << m
+end
+all_flags = out.uniq
+
+## initialize associations
+all_uids = {}
+all_flags.each do |f|
+	all_uids[f] = {"next" => 1}
+end
+
+
+## read messages and get flags
+(1..size).each do |i|
+	messageinfos = hc.messageinfos i
+	labels = messageinfos["labels"]
+	labels += messageinfos["state"]
+	message_id = messageinfos["message_id"]
+
+	labels.each do |l|
+		l = SPECIAL_MAILBOXES.key(l) if SPECIAL_MAILBOXES.value?(l)
+		next_uid = all_uids[l]["next"]
+		all_uids[l].merge!({next_uid => i})
+		all_uids[l]["next"] = next_uid + 1
+	end
+
+	puts "; treated #{i} messages" if i % 20 == 0
+
+end
+
+puts all_uids
+
+## store in a new field
+
+all_uids.each do |mailbox, hash|
+	next_to_store = hash.delete("next")
+	uids_to_store = hash # next is automatically deleted
+
+	key = "#{mailbox}/UIDs"
+	uid_store[key] = Marshal.dump(uids_to_store.to_hash)
+
+	key = "#{mailbox}/next"
+	uid_store[key] = Marshal.dump(next_to_store.to_i)
+
+end
+
