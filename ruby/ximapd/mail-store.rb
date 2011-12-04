@@ -493,19 +493,15 @@ class Ximapd
 			threadinfos = []
 			
 			if iterator > 0
-				(0..iterator).each do |i|
-					start = 300*i + 1
-					num = (total_size > start + 300) ?  300 : rest
-
-					threadinfos << @heliotropeclient.search(pattern, num, start)
+				(0..iterator+1).each do |i|
+					threadinfos << @heliotropeclient.search(pattern, 300, 300*i)
 				end
 			else
-				threadinfos << @heliotropeclient.search(pattern, rest, 1)
+				threadinfos << @heliotropeclient.search(pattern, rest, 0)
 			end
 				
 			threadinfos.flatten!
 			puts "; found #{threadinfos.size}"
-#puts "; found these threads : #{threadinfos.map{|t| t["thread_id"]}}"
 
 			threadinfos
 		end
