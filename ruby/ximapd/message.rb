@@ -46,46 +46,6 @@ class Message
 		@mailbox.fetch_labels_and_flags_for_uid(uid)
 	end
 
-	def return_flags(flags_to_treat, mode)
-		case mode
-		when :set
-
-			# IMAP clients will only set message state, not heliotrope labels.
-			# We can separate them
-			flags_labels_list = flags - MailStore::MESSAGE_STATE.to_a
-			flags_return = flags_labels_list + flags_to_treat
-
-			# remove ~unread if flags_return contains \Seen
-			flags_return -= ["\~unread"] if flags_return.include?('\\Seen')
-
-      return flags_return.join(" ")
-
-		when :add
-
-			flags_return = flags
-      flags_return |= flags_to_treat
-
-			# remove ~unread if flags_return contains \Seen
-			flags_return -= ["\~unread"] if flags_return.include?('\\Seen')
-
-      return flags_return.join(" ")	
-
-		when :remove
-
-      flags_return = flags
-      flags_return -= flags_to_treat
-
-			# add ~unread if flags_to_treat contains \Seen
-			flags.push("~unread") if @flags.include?("\\Seen")
-      return flags.join(" ")
-
-		else
-
-			puts "; no mode found ..."
-
-		end
-	end
-
 	def labels; flags end
 
 	def flags=(flags)

@@ -882,7 +882,15 @@ class Ximapd
 
   class SetFlagsStoreAtt < FlagsStoreAtt
     def get_new_flags(mail)
-			mail.return_flags(@flags, :set)
+			# IMAP clients will only set message state, not heliotrope labels.
+			# We can separate them
+			flags_labels_list = mail.flags - MailStore::MESSAGE_STATE.to_a
+			flags_return = flags_labels_list + @flags
+
+			# remove ~unread if flags_return contains \Seen
+			flags_return -= ["\~unread"] if flags_return.include?('\\Seen')
+
+      return flags_return.join(" ")
     end
   end
 
@@ -894,13 +902,24 @@ class Ximapd
 		end
 
     def get_new_flags(mail)
-			mail.return_flags(@flags, :add)
+			flags_return = mail.flags
+      flags_return |= @flags
+
+			# remove ~unread if flags_return contains \Seen
+			flags_return -= ["\~unread"] if flags_return.include?('\\Seen')
+
+      return flags_return.join(" ")	
     end
   end
 
   class RemoveFlagsStoreAtt < FlagsStoreAtt
     def get_new_flags(mail)
-			mail.return_flags(@flags, :remove)
+      flags_return = mail.flags
+      flags_return -= @flags
+
+			# add ~unread if flags_to_treat contains \Seen
+			flags_return.push("~unread") if flags_return.include?("\\Seen")
+      return flags_return.join(" ")
     end
   end
 
