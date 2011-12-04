@@ -37,20 +37,22 @@ class Message
     self
   end
 
-	def uid; @mailbox.uid_for_message_id(@messageinfos["message_id"]) end
+	attr_reader :msgid
 
-	def seqno; @mailbox.seqno_for_uid(uid) end
+	def uid; @mailbox.uid_for_message_id(@msgid) end
+
+	def seqno; @mailbox.seqno_for_message_id(@msgid) end
 
 	def flags(get_recent=true)
 		# get flags AND labels as a string
-		@mailbox.fetch_labels_and_flags_for_uid(uid)
+		@mailbox.mail_store.fetch_labels_and_flags_for_message_id @msgid
 	end
 
 	def labels; flags end
 
 	def flags=(flags)
 		# set flags AND labels with flags a string
-		@mailbox.set_labels_and_flags_for_uid(uid, flags.split)
+		@mailbox.mail_store.set_labels_and_flags_for_message_id @msgid, flags.split
 	end
 
 	def internal_date

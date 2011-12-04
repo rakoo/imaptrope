@@ -61,7 +61,7 @@ class Ximapd
 			# TODO: use a timeout
 			validated_message = begin
 				Message.validate(message)
-			rescue InvalidMessageerror => e
+			rescue InvalidMessageError => e
 				puts "; [ERROR] Invalid message : #{e.inspect}"
 				# pass the message as-is, pray it works
 				message
@@ -81,7 +81,7 @@ class Ximapd
 				# message may hove been deleted, so it doesn't exist anymore in
 				# the uids association
 				old_flags = @mail_store.fetch_labels_and_flags_for_message_id message_id
-				new_flags = (old_flags + flags + [@name]).compact.uniq
+				new_flags = (old_flags + flags + [@name]).flatten.compact.uniq
 
 				status = @mail_store.set_labels_and_flags_for_message_id(message_id, new_flags)
 			else
@@ -134,7 +134,7 @@ class Ximapd
 		def uid_search(query)
 			new_query = format(query)
 
-			puts "; query : #{new_query}"
+#puts "; query : #{new_query}"
 			result = @mail_store.search_in_heliotrope new_query  # fetches threads
 
 			thread_ids = []
@@ -175,20 +175,19 @@ class Ximapd
 		def seqno_for_uid(uid)
 			seq = message_ids_as_seq
 			message_id = message_ids_as_uids[uid]
-
 			seq.key(message_id)
 		end
 
+		def seqno_for_message_id(message_id)
+			message_ids_as_seq.key(message_id)
+		end
+
 		def uid_for_message_id(message_id)
-			message_ids_as_uids.key(message_id)
+			uid = message_ids_as_uids.key(message_id)
 		end
 
 		def fetch_labels_and_flags_for_uid(uid)
-			out = []
-
-			uids_list = message_ids_as_uids
-			message_id = uids_list[uid]
-
+			message_id = message_ids_as_uids[uid]
 			@mail_store.fetch_labels_and_flags_for_message_id message_id
 		end
 
@@ -199,29 +198,33 @@ class Ximapd
 
 		def remove_mail(uid_to_remove)
 			uids_list = message_ids_as_uids
-			uids_list.delete_if { |k,v| k == uid_to_remove}
+			uids_list.delete uid_to_remove
 			write_uids uids_list
 		end
 
 		def delete_seqno(seqno)
-			seq_list = message_ids_as_seq
-			message_id = seq_list[seqno]
-			uid_to_delete = uid_for_message_id(message_id)
+			message_id_to_delete = message_ids_as_seq[seqno]
+			uid_to_delete = uid_for_message_id(message_id_to_delete)
+			
 
+			flags = @mail_store.fetch_labels_and_flags_for_message_id message_id_to_delete
+			puts "; deleting message #{message_id_to_delete}"
 			begin
-				flags = fetch_labels_and_flags_for_uid(uid_to_delete)
-				raise NotToDeleteError.new("Trying to realdelte a mail not marked to delete") unless 
+				raise NotToDeleteError.new("Trying to realdelte message_id #{message_id_to_delete} not marked to delete") unless 
 					flags.include?("\\Deleted")
+			rescue Exception => e
+					puts e.inspect
 			end
 
 			flags -= [@name]
 			flags -= ["\\Deleted"]
 			flags -= ["~deleted"]
-			set_labels_and_flags_for_uid(uid_to_delete, flags)
+			@mail_store.set_labels_and_flags_for_message_id message_id_to_delete, flags
+
 
 			# verify that flags were removed
-			flags_verify = fetch_labels_and_flags_for_uid uid_to_delete
-			puts "; flags_verify : #{flags_verify}"
+			flags_verify = @mail_store.fetch_labels_and_flags_for_message_id message_id_to_delete
+			puts "; flags_verify : #{flags_verify} should not contain #{@name}"
 			return 0 if flags_verify.include?(@name)
 			remove_mail uid_to_delete
 			seqno
@@ -245,17 +248,14 @@ class Ximapd
 			# get the sequence numbers of the messages in the mailbox
 
 			query = format(@name)
-			if query.nil? or query.empty?
-				threads_in_mailbox = (1..@heliotropeclient.size).to_a
+			threads_in_mailbox = if query.nil? or query.empty?
+				(1..@heliotropeclient.size).to_a
 			else
-				threads_in_mailbox = @mail_store.search_in_heliotrope(query).map{|threadinfos| threadinfos["thread_id"]}
-			end
-
-			threads_in_mailbox.sort!
+				@mail_store.search_in_heliotrope(query).map{|threadinfos| threadinfos["thread_id"]}
+			end.sort!
 
 			mails_in_mailbox = threads_in_mailbox.map do |thread_id| 
-				messageinfos = @heliotropeclient.thread(thread_id).map { |blob| blob.first }
-				messageinfos.first["message_id"]
+				@heliotropeclient.thread(thread_id).map{ |blob| blob.first }.map{|message| message["message_id"]}
 			end.flatten.sort.unshift("shift")
 
 			out = {}
@@ -268,8 +268,7 @@ class Ximapd
 		end
 
 		def format(query)
-			queryterms = query.to_s.split("+")
-			out = queryterms.map! do |term|
+			queryterms = query.to_s.split("+").map do |term|
 				if MailStore::SPECIAL_MAILBOXES.include?(term)
 					"~" + MailStore::SPECIAL_MAILBOXES.fetch(term) unless MailStore::SPECIAL_MAILBOXES.fetch(term).nil?
 				else
@@ -278,10 +277,10 @@ class Ximapd
 			end.join("+")
 
 			if @name != "All Mail" && !queryterms.include?(@name)
-					out << "+" << "#{@name}" 
+					queryterms << "+" << "#{@name}" 
 			end
 
-			CGI.unescape(out)
+			CGI.unescape(queryterms)
 		end
 
 		def fetch_internal(sequence_set, assoc)
@@ -289,15 +288,17 @@ class Ximapd
 			puts "; fetching #{sequence_set} in #{assoc}"
 			
 			mails = []
-# mails_in_mailbox contains all the mails in the mailbox. When the
+# assoc contains all the mails in the mailbox. When the
 # client want the message 1..3 (sequence_set), he wants the 3 first
-# messages in the mailbox; imaptrope gives him mails_in_mailbox.at(1),
-# mails_in_mailbox.at(2) and mails_in_mailbox.at(3)
+# messages in the mailbox; imaptrope gives him assoc.fetch(1),
+# assoc.fetch(2) and assoc.fetch(3)
 	
 			sequence_set.each do |atom|
 				case atom
 				when Range
-					atom = prepare(atom)
+					if atom.last == -1
+						atom.last = assoc.keys.last
+					end
 					atom.each do |ind|
 						messageinfos = @heliotropeclient.messageinfos assoc.fetch(ind)
 						mails.push(Message.new(messageinfos, self, @heliotropeclient))
@@ -309,15 +310,6 @@ class Ximapd
 			end
 
 			mails
-		end
-
-
-
-		def prepare(sequence_set)
-			# if sequence_set is 1..-1, it means all mails
-			# 3..-1 => 3 to the end
-			uids_list = message_ids_as_seq
-			sequence_set.first .. uids_list.keys.last
 		end
 
 		# correspondance between uid in this mailbox

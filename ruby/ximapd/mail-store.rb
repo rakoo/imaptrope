@@ -298,7 +298,7 @@ class Ximapd
 				new_labels = m["labels"]
 				new_labels += [hnew_name]
 			  new_labels -= [hname] unless hname == "inbox" # if the old label is inbox, duplicate instead of moving : RFC
-				@heliotropeclient.set_labels!  m["thread_id"], new_labels
+				@heliotropeclient.set_labels!  m["thread_id"], new_labels.flatten
 			end
 
 			# prune labels
@@ -313,32 +313,6 @@ class Ximapd
 			mailbox_status.uidvalidity = @uidvalidity_seq.current
 			return mailbox_status
     end
-
-    #def index_mail(mail, filename)
-      #begin
-        #@backend.register(mail, filename)
-        #s = mail.properties["x-ml-name"]
-        #if !s.empty? && mail.properties["mailbox-id"] == 0 &&
-          #!@mailbox_db["mailing_lists"].key?(s)
-          #mbox_name = get_mailbox_name_from_x_ml_name(s)
-          #mailbox_name = format("ml/%s", Net::IMAP.encode_utf7(mbox_name))
-          #x_ml_name = mail.properties["x-ml-name"]
-          #query = PropertyEqQuery.new("x-ml-name", x_ml_name).to_s
-          #begin
-            #create_mailbox_internal(mailbox_name, query)
-            #mailbox = get_mailbox(mailbox_name)
-            #mailbox["list_id"] = s
-            #@mailbox_db["mailing_lists"][s] = {
-              #"creator_uid" => mail.uid,
-              #"mailbox" => mailbox_name
-            #}
-          #rescue MailboxExistError
-          #end
-        #end
-      #rescue Exception => e
-        #@logger.log_exception(e, "backend_mail")
-      #end
-    #end
 
     def get_mailbox(name)
 			format_label_to_imap!(name)
@@ -357,7 +331,7 @@ class Ximapd
     end
 
     def delete_mail(mailbox, seqno)
-			puts "; trying to delete mails"
+			puts "; trying to delete mail seq #{seqno} in #{mailbox.name}"
 			ret = mailbox.delete_seqno(seqno)
 			ret
     end
@@ -402,57 +376,20 @@ class Ximapd
       end
     end
 
-    def rebuild_index
-      @logger.info("rebuilding index...")
-      if @config["delete_ml_mailboxes"]
-        @mailbox_db.transaction do
-          for k, v in @mailbox_db["mailing_lists"]
-            delete_mailbox_internal(v["mailbox"]) if v.key?("mailbox")
-          end
-          @mailbox_db["mailing_lists"].clear
-          delete_mailbox_internal("ml")
-          @mailbox_db["mailboxes"]["ml"] = DEFAULT_MAILBOXES["ml"]
-        end
-      end
-      @backend.rebuild_index do
-        mailbox_names = {}
-        @mailbox_db.transaction do
-          for mailbox_name, mailbox_data in @mailbox_db["mailboxes"]
-            id = mailbox_data["id"]
-            if id
-              mailbox_names[id] = mailbox_name
-            end
-          end
-        end
-        open_backend do
-          mail_dir = File.expand_path("mails", @path)
-          Dir.glob(mail_dir + "/*/*").sort.each do |dir|
-            reindex_month(dir)
-          end
-        end
-      end
-      @uidvalidity_seq.next
-      @logger.info("rebuilt index")
-    end
-
     def get_next_mailbox_id
       return @mailbox_id_seq.next
     end
 
-
-
-# TODO : those 2 methods fetch the whole wessage, but we don't need the
-# body. Maybe add a "complete" arg to the fetch method to fetch only the
-# messageinfos ?
 		def fetch_labels_and_flags_for_message_id(message_id)
 			out = []
-			messageinfos = 	@heliotropeclient.messageinfos(message_id)
-			messageinfos.fetch("labels").each do |l|
-				out << "~#{l}" 
-			end
-
-			messageinfos.fetch("state").each do |s|
-				out << SPECIAL_MAILBOXES.key(s)
+			minfos = 	@heliotropeclient.messageinfos(message_id)
+			out << minfos["labels"] << minfos["state"]
+			out = out.flatten.map do |l|
+				if SPECIAL_MAILBOXES.value?(l)
+					SPECIAL_MAILBOXES.key(l)
+				else
+					"~" + l
+				end
 			end
 
 			out << "\\Seen" unless out.include?("~unread")
@@ -500,10 +437,7 @@ class Ximapd
 				threadinfos << @heliotropeclient.search(pattern, rest, 0)
 			end
 				
-			threadinfos.flatten!
-			puts "; found #{threadinfos.size}"
-
-			threadinfos
+			threadinfos.flatten
 		end
 
 		private

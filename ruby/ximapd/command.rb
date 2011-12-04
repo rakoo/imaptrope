@@ -501,11 +501,13 @@ class Ximapd
         @mailbox = @session.get_current_mailbox
         uids = @mailbox.uid_search(@mailbox.query&FlagQuery.new("\\Deleted"))
         deleted_mails = @mailbox.uid_fetch(uids).reverse
-        deleted_seqnos = deleted_mails.collect { |mail|
-          mail.seqno
-        }
+
+
+				# We need to use seqno, because of the return
+        deleted_seqnos = deleted_mails.collect{ |mail| mail.seqno }
       end
       for seqno in deleted_seqnos
+				raise RuntimeError, "seqno to delete is nil !" if seqno.nil?
 				ret = @mail_store.delete_mail(@mailbox, seqno)
         @session.send_data("%d EXPUNGE", ret)
         @session.push_queued_response(@session.current_mailbox, "#{ret} EXISTS")
