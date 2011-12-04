@@ -44,7 +44,7 @@ SPECIAL_MAILBOXES = {
 flags = Set.new(hc.labels)
 out = []
 flags.each do |label|
-	out << label unless SPECIAL_MAILBOXES.value?(label)
+	out << "~" + label unless SPECIAL_MAILBOXES.value?(label)
 end
 SPECIAL_MAILBOXES.keys.each do |m|
 	out << m
@@ -66,7 +66,11 @@ end
 	message_id = messageinfos["message_id"]
 
 	labels.each do |l|
-		l = SPECIAL_MAILBOXES.key(l) if SPECIAL_MAILBOXES.value?(l)
+		if SPECIAL_MAILBOXES.value?(l)
+			l = SPECIAL_MAILBOXES.key(l) 
+		else
+			l = "~" + l
+		end
 		next_uid = all_uids[l]["next"]
 		all_uids[l].merge!({next_uid => i})
 		all_uids[l]["next"] = next_uid + 1
