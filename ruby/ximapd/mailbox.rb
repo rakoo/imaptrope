@@ -186,15 +186,15 @@ class Ximapd
 			uid = message_ids_as_uids.key(message_id)
 		end
 
-		def fetch_labels_and_flags_for_uid(uid)
-			message_id = message_ids_as_uids[uid]
-			@mail_store.fetch_labels_and_flags_for_message_id message_id
-		end
+		#def fetch_labels_and_flags_for_uid(uid)
+			#message_id = message_ids_as_uids[uid]
+			#@mail_store.fetch_labels_and_flags_for_message_id message_id
+		#end
 
-		def set_labels_and_flags_for_uid(uid, flags)
-			message_id = message_ids_as_uids[uid]
-			@mail_store.set_labels_and_flags_for_message_id message_id, flags
-		end
+		#def set_labels_and_flags_for_uid(uid, flags)
+			#message_id = message_ids_as_uids[uid]
+			#@mail_store.set_labels_and_flags_for_message_id message_id, flags
+		#end
 
 		def remove_mail(uid_to_remove)
 			uids_list = message_ids_as_uids
