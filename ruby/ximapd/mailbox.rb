@@ -134,7 +134,6 @@ class Ximapd
 		def uid_search(query)
 			new_query = format(query)
 
-#puts "; query : #{new_query}"
 			result = @mail_store.search_in_heliotrope new_query  # fetches threads
 
 			thread_ids = []
@@ -158,24 +157,15 @@ class Ximapd
 			puts "; as sequence_set"
 			# mails_in_mailbox contains all the mails in the mailbox. When the
 			# client want the message 1..3 (sequence_set), he wants the 3 first
-			# messages in the mailbox; imaptrope gives him mails_in_mailbox.at(1),
-			# mails_in_mailbox.at(2) and mails_in_mailbox.at(3)
+			# messages in the mailbox; imaptrope gives him message_ids_as_seq.at(1),
+			# message_ids_as_seq.at(2) and message_ids_as_seq.at(3)
 			fetch_internal(sequence_set, message_ids_as_seq)
 		end
 
 		def uid_fetch(sequence_set)
 			puts "; as uid"
+			# Same thing for uids
 			fetch_internal(sequence_set, message_ids_as_uids)
-		end
-
-		def fetch_rawbody_for_uid(uid)
-			@heliotropeclient.raw_message message_ids_as_uids[uid]
-		end
-
-		def seqno_for_uid(uid)
-			seq = message_ids_as_seq
-			message_id = message_ids_as_uids[uid]
-			seq.key(message_id)
 		end
 
 		def seqno_for_message_id(message_id)
@@ -186,17 +176,9 @@ class Ximapd
 			uid = message_ids_as_uids.key(message_id)
 		end
 
-		#def fetch_labels_and_flags_for_uid(uid)
-			#message_id = message_ids_as_uids[uid]
-			#@mail_store.fetch_labels_and_flags_for_message_id message_id
-		#end
-
-		#def set_labels_and_flags_for_uid(uid, flags)
-			#message_id = message_ids_as_uids[uid]
-			#@mail_store.set_labels_and_flags_for_message_id message_id, flags
-		#end
-
 		def remove_mail(uid_to_remove)
+			# remove mail from uids list, after removing its flags (with
+			# delete_seqno, just after
 			uids_list = message_ids_as_uids
 			uids_list.delete uid_to_remove
 			write_uids uids_list

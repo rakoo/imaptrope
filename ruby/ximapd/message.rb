@@ -63,7 +63,7 @@ class Message
 		# TODO: verify if this is really conform with RFC2822
 		# Get the rawbody only at that time, because some people still send
 		# gigabytes of sh*t through emails, so it can be very large.
-		fetch_rawbody_for_uid(uid).bytesize
+		@heliotropeclient.raw_message(message_id).bytesize
 	end
 
 	def envelope
@@ -216,7 +216,7 @@ class Message
 private
 
 	def parsed_mail
-		@parsed_mail ||= Mail.read_from_string @heliotropeclient.raw_message @msgid
+		@parsed_mail ||= Mail.read_from_string(@heliotropeclient.raw_message(@msgid))
 	end
 
 	#def body_from_rawbody(rawbody)
