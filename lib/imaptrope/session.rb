@@ -233,13 +233,13 @@ class IMAPTrope
           end
         end
         return nil if buf.length == 0
-        @logger.debug(buf.gsub(/^/n, "C: ")) if @config["debug"]
+        @logger.debug(buf.gsub(/^/n, "C: ")) if @config[:debug]
         return @parser.parse(buf)
       end
     end
 
     def send_line(line)
-      @logger.debug(line.gsub(/^/n, "S: ")) if @config["debug"]
+      @logger.debug(line.gsub(/^/, "S: ")) if @config[:debug]
       @sock.print(line + "\r\n")
     end
 
@@ -355,7 +355,7 @@ class IMAPTrope
           total = 0.001
         end
         sum = 0
-        path = File.expand_path("profile.log", @config["data_dir"])
+        path = File.expand_path("profile.log", @config[:data_dir])
         File.open(path, "a") do |f|
           f.printf(">>> %s %s\n", cmd.tag, cmd.name)
           f.print("  %%   cumulative   self              self     total\n")

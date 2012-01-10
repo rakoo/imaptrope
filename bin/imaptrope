@@ -208,7 +208,7 @@ class IMAPTrope
       end
       @logger = open_logger
     rescue StandardError => e
-      raise if @config["debug"]
+      raise if @config[:debug]
       STDERR.printf("imaptrope: %s\n", e)
       exit(1)
     end
@@ -246,7 +246,7 @@ class IMAPTrope
   end
 
   def open_logger
-    if @config["debug"]
+    if @config[:debug]
       logger = Logger.new(STDERR)
       logger.level = Logger::DEBUG
     else
@@ -331,15 +331,15 @@ class IMAPTrope
   end
 
   def start_servers
-    if @config["ssl"]
-      if @config["ssl_port"]
-        start_server(@config["port"], false)
-        start_server(@config["ssl_port"], true)
+    if @config[:ssl]
+      if @config[:ssl_port]
+        start_server(@config[:port], false)
+        start_server(@config[:ssl_port], true)
       else
-        start_server(@config["port"], true)
+        start_server(@config[:port], true)
       end
     else
-      start_server(@config["port"], false)
+      start_server(@config[:port], false)
     end
   end
 
