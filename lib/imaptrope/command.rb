@@ -678,7 +678,9 @@ class IMAPTrope
     include DataFormat
 
     def fetch(mail)
-      return format("RFC822.HEADER %s", literal(mail.get_header))
+      return format("RFC822.HEADER %s", literal(mail.get_header.fields.map do |f|
+				"#{f.name}: #{f.value}"
+			end.join("\r\n")))
     end
   end
 
@@ -691,7 +693,7 @@ class IMAPTrope
   class RFC822TextFetchAtt
     def fetch(mail)
 			s = mail.body
-			return format("RFC822.TEXT {%d}\r\n%s", s.length, s)
+			return format("RFC822.TEXT {%d}\r\n%s", s.decoded.size, s)
     end
   end
 
@@ -731,7 +733,7 @@ class IMAPTrope
         end
         result = format_data(mail.mime_body(part))
         unless @peek
-          flags = mail.flags(false)
+          flags = mail.flags(false).join(" ")
           unless /\\Seen\b/ni.match(flags)
             if flags.empty?
               flags = "\\Seen"

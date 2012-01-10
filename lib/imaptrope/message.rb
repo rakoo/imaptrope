@@ -52,7 +52,8 @@ class Message
 
 	def flags=(flags)
 		# set flags AND labels with flags a string
-		@mailbox.mail_store.set_labels_and_flags_for_message_id @msgid, flags.split
+		new_flags = flags.split unless flags.respond_to?(:map)
+		@mailbox.mail_store.set_labels_and_flags_for_message_id @msgid, (new_flags || flags)
 	end
 
 	def internal_date
@@ -63,7 +64,7 @@ class Message
 		# TODO: verify if this is really conform with RFC2822
 		# Get the rawbody only at that time, because some people still send
 		# gigabytes of sh*t through emails, so it can be very large.
-		@heliotropeclient.raw_message(message_id).bytesize
+		@heliotropeclient.raw_message(@msgid).bytesize
 	end
 
 	def envelope
@@ -77,7 +78,7 @@ class Message
 		out << envelope_addrs(@cc) << " "
 		out << envelope_addrs(@bcc)  << " "
 		out << "NIL" << " " # should be in-reply-to, but this header isn't known : TODO
-		out << quoted("<" + @msgid + ">")
+		out << quoted("<" + @msgid.to_s + ">")
 		out << ")"
 			
 		out
@@ -91,24 +92,20 @@ class Message
 		#else
 			#fetch_rawbody_for_uid(uid).split(/\n\n/).first + "\n\n"
 		#end
-		parsed_mail.header
+		(part || parsed_mail).header
 	end
 
 	def body
-		parsed_mail.body
-		#rawbody = fetch_rawbody_for_uid(uid)
-		#body_from_rawbody rawbody
+		parsed_mail.body.decoded
 	end
 		
 
 
 	def get_header_fields(fields, part = nil)
 # Get some of the headers, those specified by fields
-		pat = "^(?:" + fields.collect { |field|
-			Regexp.quote(field)
-		}.join("|") + "):.*(?:\n[ \t]+.*)*\n"
-		re = Regexp.new(pat, true, "n")
-		return get_header(part).scan(re).join + "\r\n"
+		fields.map do |field|
+			"#{field.capitalize}: #{get_header(part)[field]}"
+		end.join("\r\n") + "\r\n"
 	end
 
 
@@ -219,11 +216,6 @@ private
 		@parsed_mail ||= Mail.read_from_string(@heliotropeclient.raw_message(@msgid))
 	end
 
-	#def body_from_rawbody(rawbody)
-		#rawbody.split(/\r+?\n+?\r+?\n+?/).drop(1).join("\n\n")
-	#end
-		
-
 	def get_part(part)
 		part_numbers = part.split(/\./).collect { |i| i.to_i - 1 }
 		return get_part_internal(parsed_mail, part_numbers)
@@ -273,29 +265,29 @@ private
 
 	def body_structure_internal(mail, extensible)
 		ary = []
-		if /message\/rfc822/n.match(mail.header["content_type"])
-			body = RMail::Parser.read(mail.body)
+		if /message\/rfc822/n.match(mail.header["content_type"].decoded)
+			body = mail.body
 			ary.push(quoted("MESSAGE"))
 			ary.push(quoted("RFC822"))
 			ary.push(body_fields(mail, extensible))
-#ary.push(envelope_internal(body))
+			ary.push(envelope_internal(body))
 			ary.push(body_structure_internal(body, extensible))
-			ary.push(mail.body.to_a.length.to_s)
+			ary.push(mail.parts.to_a.length.to_s)
 		elsif mail.multipart?
-			parts = mail.body.collect { |part|
+			parts = mail.parts.collect do |part|
 				body_structure_internal(part, extensible)
-			}.join
+			end.join(" ")
 			ary.push(parts)
-			ary.push(quoted(upcase(mail.header.subtype)))
+			ary.push(quoted(upcase(mail.content_type.gsub(/.*\//,""))))
 			if extensible
 				ary.push(body_ext_mpart(mail))
 			end
 		else
-			ary.push(quoted(upcase(mail.header.media_type)))
-			ary.push(quoted(upcase(mail.header.subtype)))
+			ary.push(quoted(upcase(mail.content_type.gsub(/.*\//,""))))
+			ary.push(quoted(upcase(mail.content_type.gsub(/\/.*/,""))))
 			ary.push(body_fields(mail, extensible))
-			if mail.header.media_type == "text"
-				ary.push(mail.body.split(/\n/).length.to_s)
+			if mail.content_type.gsub(/\/.*/,"") == "text"
+				ary.push(mail.body.split(/\r\n/).length.to_s)
 			end
 			if extensible
 				ary.push(body_ext_1part(mail))
@@ -306,10 +298,10 @@ private
 
 	def body_fields(mail, extensible)
 		fields = []
-		params = "(" + mail.header.params("content-type", {}).collect { |k, v|
-			v.gsub!(/\s/,"")
-			format("%s %s", quoted(upcase(k)), quoted(v))
-		}.join(" ") + ")"
+		params = "(" + mail.content_type.collect do |value|
+			value.gsub!(/\s/,"")
+			format("%s %s", quoted("content_type"), quoted(value))
+		end.join(" ") + ")"
 		if params == "()"
 			fields.push("NIL")
 		else
@@ -371,7 +363,7 @@ private
 	end
 
 	def body_fld_param(mail)
-		unless mail.header.field?("content-type")
+		if mail.header.fields.select{|f| f.name == "content-type"}
 			return "NIL"
 		end
 		params = mail.header.params("content-type", {}).collect { |k, v|
@@ -389,9 +381,9 @@ private
 		unless mail.header.field?("content-disposition")
 			return "NIL"
 		end
-		params = mail.header.params("content-disposition", {}).collect { |k, v|
-			v.gsub!(/\s/,"")
-			format("%s %s", quoted(upcase(k)), quoted(v))
+		params = mail.header["content-disposition"].collect { |value|
+			value.gsub!(/\s/,"")
+			format("%s %s", quoted("content-disposition"), quoted(value))
 		}
 		if params.empty?
 			p = "NIL"
