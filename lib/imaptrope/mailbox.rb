@@ -117,16 +117,7 @@ class IMAPTrope
 			mailbox_status.recent = @heliotropeclient.count "\\Recent" #this label/FLAG doesn't exist, but I don't know what we can do with it anyway
 			mailbox_status.uidnext = next_uid
 
-			if @name == "All Mail"
-				mailbox_status.messages = @heliotropeclient.size
-				mailbox_status.unseen = @heliotropeclient.count "~unread"
-			elsif MailStore::SPECIAL_MAILBOXES.member?(@name)
-				mailbox_status.messages = @heliotropeclient.count "~#{MailStore::SPECIAL_MAILBOXES[@name]}"
-				mailbox_status.unseen = @heliotropeclient.count "~unread+~#{MailStore::SPECIAL_MAILBOXES[@name]}"
-			else
-				mailbox_status.messages = @heliotropeclient.count "#{@name}"
-				mailbox_status.unseen = @heliotropeclient.count "~unread+#{@name}"
-			end
+
 
 			mailbox_status
 		end
@@ -279,6 +270,7 @@ class IMAPTrope
 					# transform Range to Array
 					begin
 						if atom.last == -1 # fetch all
+							puts "; fetching all : from #{atom.first} to #{assoc.keys.last}"
 							atom.first .. assoc.keys.last
 						else
 							atom

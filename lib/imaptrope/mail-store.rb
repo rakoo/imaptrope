@@ -252,7 +252,7 @@ class IMAPTrope
 
 			#TODO : cannot delete if there is the \Noselect label or if there are
 			#sublabels
-			hlabel = format_label_from_imap_to_heliotrope!(name)
+			hlabel = format_label_from_imap_to_heliotrope name
 			
 			threadinfos = search_in_heliotrope name
 			threadinfos.each do |m|
@@ -287,8 +287,8 @@ class IMAPTrope
 
 			puts "rename label #{name} to #{new_name}"
 
-			hname = format_label_from_imap_to_heliotrope!(name)
-			hnew_name = format_label_from_imap_to_heliotrope!(new_name)
+			hname = format_label_from_imap_to_heliotrope name
+			hnew_name = format_label_from_imap_to_heliotrope new_name
 
 			thread_infos = []
 			count = @heliotropeclient.count name
@@ -307,9 +307,18 @@ class IMAPTrope
     def get_mailbox_status(mailbox_name, read_only = false)
 
 			format_label_to_imap!(mailbox_name)
-			mailbox = get_mailbox mailbox_name
-			mailbox_status = mailbox.status
+			mailbox_status = get_mailbox(mailbox_name).status
 			mailbox_status.uidvalidity = @uidvalidity_seq.current
+
+			if @name == "All Mail"
+				mailbox_status.messages = @heliotropeclient.size
+				mailbox_status.unseen = @heliotropeclient.count "~unread"
+			else
+				hlabel = format_label_from_imap_to_heliotrope mailbox_name
+				mailbox_status.messages = count_messages_for_label hlabel
+				mailbox_status.unseen = count_messages_for_label "~unread+#{hlabel}"
+			end
+
 			return mailbox_status
     end
 
@@ -323,10 +332,11 @@ class IMAPTrope
 				raise NotSelectableMailboxError.new("Can't select #{name} : not a selectable mailbox")
 			end
 
-			data = Hash.new
-			data['heliotrope-client'] = @heliotropeclient
-			data['logger'] = @logger
-			return HeliotropeFakeMailbox.new(self, name, data)
+			return HeliotropeFakeMailbox.new(self, name, 
+					{
+						"heliotrope-client" => @heliotropeclient,
+						"logger" => @logger
+					})
     end
 
     def delete_mail(mailbox, seqno)
@@ -350,7 +360,7 @@ class IMAPTrope
 
 			dst_mailbox = get_mailbox(mailbox_name)
 
-			hlabel = format_label_from_imap_to_heliotrope!(mailbox_name)
+			hlabel = format_label_from_imap_to_heliotrope mailbox_name
 			mails.each do |m|
 				response = dst_mailbox.append_mail(m)
 				out << response[:uid]
@@ -401,7 +411,7 @@ class IMAPTrope
 			message_id = messageinfos["message_id"]
 
 			flags.map! do |f|
-				format_label_from_imap_to_heliotrope!(f)
+				format_label_from_imap_to_heliotrope f
 			end.compact!
 
 			# separate flags between labels and state
@@ -448,7 +458,7 @@ class IMAPTrope
 		end
 
 
-		def format_label_from_imap_to_heliotrope!(ilabel)
+		def format_label_from_imap_to_heliotrope ilabel
 			if SPECIAL_MAILBOXES.key?(ilabel)
 				return SPECIAL_MAILBOXES.fetch(ilabel)
 			elsif /^\\/.match(ilabel)
@@ -456,6 +466,13 @@ class IMAPTrope
 			else
 				return ilabel.gsub(/^\~/,"") # remove ~ from the beginning of the label
 			end
+		end
+
+		def count_messages_for_label hlabel
+			threads = @heliotropeclient.search hlabel
+			threads.map do |thread|
+				@heliotropeclient.thread(thread["thread_id"]).map{|blob| blob.last}
+			end.flatten.size
 		end
 
     def extract_query(mailbox_name)
