@@ -23,7 +23,7 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 
-class Ximapd
+class IMAPTrope
   class Command
     attr_reader :session
     attr_accessor :tag, :name

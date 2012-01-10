@@ -5,7 +5,7 @@ require 'digest/md5'
 require 'json'
 require 'timeout'
 
-class Ximapd
+class IMAPTrope
 class InvalidMessageError < StandardError; end
 class Message
   def initialize messageinfos, mailbox, heliotropeclient

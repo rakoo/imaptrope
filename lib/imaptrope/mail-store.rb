@@ -24,13 +24,12 @@
 # SUCH DAMAGE.
 
 require "heliotrope-client"
-#require "heliotrope-backend"
 require "set"
 require "rest_client"
 require "json"
 require "leveldb"
 
-class Ximapd
+class IMAPTrope
 
 
   module DataFormat
@@ -129,10 +128,10 @@ class Ximapd
     def initialize(config)
       super()
       @config = config
-      @logger = @config["logger"]
+      @logger = @config[:logger]
 			@heliotropeclient = HeliotropeClient.new "http://localhost:8042"
 
-      @path = File.expand_path(@config["data_dir"])
+      @path = File.expand_path(@config[:data_dir])
       FileUtils.mkdir_p(@path)
       uidvalidity_seq_path = File.expand_path("uidvalidity.seq", @path)
       @uidvalidity_seq = Sequence.new(uidvalidity_seq_path)

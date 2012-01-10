@@ -26,7 +26,7 @@
 require 'cgi'
 require 'leveldb'
 
-class Ximapd
+class IMAPTrope
 
   MailboxStatus = Struct.new(:messages, :recent, :uidnext, :uidvalidity, :unseen)
 
