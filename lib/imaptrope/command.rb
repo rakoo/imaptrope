@@ -86,12 +86,14 @@ class IMAPTrope
     def exec
       capa = "CAPABILITY IMAP4REV1 IDLE"
       unless @session.secure?
-        capa += " LOGINDISABLED"
+#capa += " LOGINDISABLED"
       end
       capa += " AUTH=CRAM-MD5"
       if @session.config["starttls"]
         capa += " STARTTLS"
       end
+			# test
+			capa += " AUTH=PLAIN"
 			capa += " UIDPLUS"
       @session.send_data(capa)
       send_tagged_ok
@@ -395,6 +397,7 @@ class IMAPTrope
       s = @atts.collect { |att|
         format("%s %d", att, status.send(att.downcase))
       }.join(" ")
+			puts "; atts in command : #{s}"
       @session.send_data("STATUS %s (%s)", quoted(@mailbox_name), s)
       @session.send_queued_responses
       send_tagged_ok
@@ -441,12 +444,12 @@ class IMAPTrope
             begin
               @session.idle = true
               @session.sync
-              @mail_store.mailbox_db.transaction do
-                @mail_store.plugins.fire_event(:on_idle)
-                if @session.all_session_on_idle?
-                  @mail_store.plugins.fire_event(:on_idle_all)
-                end
-              end
+              #@mail_store.mailbox_db.transaction do
+                #@mail_store.plugins.fire_event(:on_idle)
+                #if @session.all_session_on_idle?
+                  #@mail_store.plugins.fire_event(:on_idle_all)
+                #end
+              #end
             ensure
               @session.idle = false
             end
