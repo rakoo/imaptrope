@@ -267,7 +267,6 @@ class IMAPTrope
 
 		def fetch_internal(sequence_set, assoc)
 
-			puts "; fetching #{sequence_set} in #{assoc}"
 			
 			mails = []
 # assoc contains all the mails in the mailbox. When the
@@ -275,20 +274,26 @@ class IMAPTrope
 # messages in the mailbox; imaptrope gives him assoc.fetch(1),
 # assoc.fetch(2) and assoc.fetch(3)
 	
-			sequence_set.each do |atom|
-				case atom
-				when Range
-					if atom.last == -1
-						atom.last = assoc.keys.last
-					end
-					atom.each do |ind|
-						messageinfos = @heliotropeclient.messageinfos assoc.fetch(ind)
-						mails.push(Message.new(messageinfos, self, @heliotropeclient))
-					end
+			seq_to_fetch_from = sequence_set.map do |atom|
+				if atom.respond_to?(:to_a)
+					# transform Range to Array
+					begin
+						if atom.last == -1 # fetch all
+							atom.first .. assoc.keys.last
+						else
+							atom
+						end
+					end.to_a
 				else
-					messageinfos = @heliotropeclient.messageinfos assoc.fetch(atom)
-					mails.push(Message.new(messageinfos, self, @heliotropeclient))
+					atom
 				end
+			end.flatten
+						
+			puts "; fetching #{seq_to_fetch_from} in #{assoc}"
+
+			seq_to_fetch_from.each do |ind|
+				messageinfos = @heliotropeclient.messageinfos assoc.fetch(ind)
+				mails.push(Message.new(messageinfos, self, @heliotropeclient))
 			end
 
 			mails
