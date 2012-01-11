@@ -693,7 +693,7 @@ class IMAPTrope
   class RFC822TextFetchAtt
     def fetch(mail)
 			s = mail.body
-			return format("RFC822.TEXT {%d}\r\n%s", s.decoded.size, s)
+			return format("RFC822.TEXT {%d}\r\n%s", s.size, s)
     end
   end
 
@@ -913,7 +913,7 @@ class IMAPTrope
       flags_return |= @flags
 
 			# remove ~unread if flags_return contains \Seen
-			flags_return -= ["\~unread"] if flags_return.include?('\\Seen')
+			flags_return -= ["\~unread"] if @flags.include?('\\Seen')
 
       return flags_return.join(" ")	
     end
@@ -924,8 +924,8 @@ class IMAPTrope
       flags_return = mail.flags
       flags_return -= @flags
 
-			# add ~unread if flags_to_treat contains \Seen
-			flags_return.push("~unread") if flags_return.include?("\\Seen")
+			# add ~unread if we want to remove \Seen
+			flags_return.push("~unread") if @flags.include?("\\Seen")
       return flags_return.join(" ")
     end
   end
