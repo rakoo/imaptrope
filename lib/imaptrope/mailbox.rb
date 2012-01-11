@@ -225,7 +225,7 @@ class IMAPTrope
 				(1..@heliotropeclient.size).to_a
 			else
 				@mail_store.search_in_heliotrope(query).map{|threadinfos| threadinfos["thread_id"]}
-			end.sort!
+			end.sort
 
 			mails_in_mailbox = threads_in_mailbox.map do |thread_id| 
 				@heliotropeclient.thread(thread_id).map{ |blob| blob.first }.map{|message| message["message_id"]}
