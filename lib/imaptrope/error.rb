@@ -1,4 +1,3 @@
-#!/usr/bin/ruby
 # $Id$
 # Copyright (C) 2005  Shugo Maeda <shugo@ruby-lang.org>
 # All rights reserved.
@@ -24,15 +23,21 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 
-$:.unshift("/home/rakoo/dev/ximapd/bin/share/ximapd/ruby")
+class IMAPTrope
+  class SubclassResponsibilityError < ScriptError
+    def initialize(s = "subclass must override this method")
+      super(s)
+    end
+  end
 
-require "ximapd"
-
-Ximapd::Backend.directory = "/home/rakoo/dev/ximapd/bin/share/ximapd/backends"
-Ximapd::Plugin.directories = ["/home/rakoo/dev/ximapd/bin/share/ximapd/plugins"]
-
-File.umask(0077)
-imapd = Ximapd.new
-imapd.run(ARGV)
-
-# vim: set filetype=ruby expandtab sw=2 :
+  class TerminateException < Exception; end
+  class MailboxError < StandardError; end
+  class MailboxExistError < MailboxError; end
+  class NoMailboxError < MailboxError; end
+  class MailboxAccessError < MailboxError; end
+  class NotSelectableMailboxError < MailboxError; end
+  class InvalidQueryError < StandardError; end
+  class IdleTerminated < Exception; end
+	class MessageNotValidError < Exception; end
+	class NotToDeleteError < Exception; end
+end

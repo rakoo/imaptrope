@@ -1,71 +1,59 @@
 # encoding: UTF-8
 
-require 'rmail'
+require 'mail'
 require 'digest/md5'
 require 'json'
 require 'timeout'
 
-class Ximapd
+class IMAPTrope
 class InvalidMessageError < StandardError; end
 class Message
-  def initialize messageinfos, mail_store
+  def initialize messageinfos, mailbox, heliotropeclient
 		@messageinfos = messageinfos
-		@mail_store = mail_store
-    @mime_parts = {}
+		@mailbox = mailbox
+		@heliotropeclient = heliotropeclient
 
 # These fields shouldn't change, so it is safe to have them once and for
 # all
+# TODO this is all false
 
-		@msgid = messageinfos["email_message_id"]
-    @safe_msgid = munge_msgid @msgid
-
-		@from = Person.from_string messageinfos["from"]
 		@date = messageinfos["date"] #careful : this is UNIX time
-
-		@to = Person.many_from_string messageinfos["to"].join(",")
-		@cc = Person.many_from_string messageinfos["cc"].join(",")
-		@bcc = Person.many_from_string messageinfos["bcc"].join(",")
+		@msgid = messageinfos["message_id"]
+		@from = Person.from_string messageinfos["from"]
+		@to = Person.many_from_string(messageinfos["to"].join(","))
+		@cc = Person.many_from_string(messageinfos["cc"].join(",")) unless messageinfos["cc"].nil?
+		@bcc = Person.many_from_string(messageinfos["bcc"].join(",")) unless messageinfos["bcc"].nil?
 		@subject = messageinfos["subject"]
 		@reply_to = Person.from_string messageinfos["reply_to"]
 		@refs = messageinfos["refs"]
-    @safe_refs = @refs.map { |r| munge_msgid(r) }
-
-
 		@recipient_email = messageinfos["recipient_email"]
 		@list_subscribe = messageinfos["list_subscribe"]
 		@list_unsubscribe = messageinfos["list_unsubscribe"]
 		@list_post = messageinfos["list_post"]
-
 		@mime_parts = messageinfos["parts"]
 
-# but labels can change, so we should ALWAYS fetch for them
-
-# These are internal, but can help
-		@uid = messageinfos["message_id"]
-		@thread_id = messageinfos["thread_id"] # we should check for it, because it can also change
-
-
-    
+		@email_message_id = messageinfos["email_message_id"]
 
     self
   end
 
-  attr_reader :msgid, :from, :to, :cc, :bcc, :subject, :date, :refs, :recipient_email, :list_post, :list_unsubscribe, :list_subscribe, :reply_to, :safe_msgid, :safe_refs
+	attr_reader :msgid
 
-# aliases for IMAP
-	attr_reader :uid
-	def seqno; @uid end
+	def uid; @mailbox.uid_for_message_id(@msgid) end
+
+	def seqno; @mailbox.seqno_for_message_id(@msgid) end
 
 	def flags(get_recent=true)
 		# get flags AND labels as a string
- 		@mail_store.fetch_labels_and_flags_for_uid(@uid).join(" ")
+		@mailbox.mail_store.fetch_labels_and_flags_for_message_id @msgid
 	end
 
 	def labels; flags end
 
 	def flags=(flags)
 		# set flags AND labels with flags a string
-		@mail_store.set_labels_and_flags_for_uid(@uid, flags.split)
+		new_flags = flags.split unless flags.respond_to?(:map)
+		@mailbox.mail_store.set_labels_and_flags_for_message_id @msgid, (new_flags || flags)
 	end
 
 	def internal_date
@@ -76,7 +64,7 @@ class Message
 		# TODO: verify if this is really conform with RFC2822
 		# Get the rawbody only at that time, because some people still send
 		# gigabytes of sh*t through emails, so it can be very large.
-		@mail_store.fetch_rawbody_for_uid(@uid).bytesize
+		@heliotropeclient.raw_message(@msgid).bytesize
 	end
 
 	def envelope
@@ -90,7 +78,7 @@ class Message
 		out << envelope_addrs(@cc) << " "
 		out << envelope_addrs(@bcc)  << " "
 		out << "NIL" << " " # should be in-reply-to, but this header isn't known : TODO
-		out << quoted("<" + @msgid + ">")
+		out << quoted("<" + @msgid.to_s + ">")
 		out << ")"
 			
 		out
@@ -99,29 +87,25 @@ class Message
 	def get_header(part=nil)
 # I don't know about this one, should we display only the message
 # header, or the header for each part ? For the moment, I'm being lazy
-
-		if part
-			return get_part(part).body.to_s.slice(/.*?\n\n/mn).gsub(/\n/, "\r\n")
-		else
-			@mail_store.fetch_rawbody_for_uid(@uid).split(/\n\n/).first + "\n\n"
-		end
+		#if part
+			#return get_part(part).body.to_s.slice(/.*?\n\n/mn).gsub(/\n/, "\r\n")
+		#else
+			#fetch_rawbody_for_uid(uid).split(/\n\n/).first + "\n\n"
+		#end
+		(part || parsed_mail).header
 	end
 
 	def body
-		rawbody = @mail_store.fetch_rawbody_for_uid(@uid).split(/\n\n/)
-		rawbody.shift
-		rawbody.join("\n\n") + "\n\n"
+		parsed_mail.body.decoded
 	end
 		
 
 
 	def get_header_fields(fields, part = nil)
 # Get some of the headers, those specified by fields
-		pat = "^(?:" + fields.collect { |field|
-			Regexp.quote(field)
-		}.join("|") + "):.*(?:\n[ \t]+.*)*\n"
-		re = Regexp.new(pat, true, "n")
-		return get_header(part).scan(re).join + "\r\n"
+		fields.map do |field|
+			"#{field.capitalize}: #{get_header(part)[field]}"
+		end.join("\r\n") + "\r\n"
 	end
 
 
@@ -189,8 +173,7 @@ class Message
   end
 
 	def multipart?
-		mail = parsed_mail
-		return mail.multipart?
+		return parsed_mail.multipart?
 	end
 
 	def mime_header(part)
@@ -206,80 +189,32 @@ class Message
 	end
 
 	def to_s
-		@mail_store.fetch_rawbody_for_uid @uid
+		parsed_mail.to_s
 	end
 
 	def self.validate(rawbody)
-		m = RMail::Parser.read rawbody
-		body = m.header[""] # I don't understand ...
+		m = Mail.read_from_string rawbody
+
+		raise InvalidMessageError.new("No from field") if m[:from].nil?
+		raise InvalidMessageError.new("no to field") if m[:to].nil?
 
 		# add a Message-Id field if necessary
-    msgid = find_msgids(decode_header(m.header["message-id"])).first
-
-		# add a Date if necessary
-    date = begin
-			Time.parse(m.header["date"]).to_s
-		rescue
-			nil
+		unless m[:message_id]
+				hostname = Socket.gethostname
+				m.message_id = "<#{Time.now.to_i}.imaptrope.#{rand 10000}@#{hostname}>" # Stolen from turnsole
 		end
 
-		# exit if no from
-		from = Person.from_string decode_header(m.header["from"])
-		raise "Can't find from" if from.blank?
-		
-		# exit if no to
-    to = Person.many_from_string decode_header(m.header["to"])
-		raise "Can't find to" if to.blank?
+		# add a Date field if necessary
+		m.date = Time.now.to_s unless m.date
 
-    #cc = Person.many_from_string decode_header(m.header["cc"])
-    #bcc = Person.many_from_string decode_header(m.header["bcc"])
-    #subject = decode_header m.header["subject"]
-    #reply_to = Person.from_string m.header["reply-to"]
-
-    #refs = find_msgids decode_header(m.header["references"] || "")
-    #in_reply_to = find_msgids decode_header(m.header["in-reply-to"] || "")
-    #refs += in_reply_to unless refs.member? in_reply_to.first
-    #safe_refs = refs.map { |r| munge_msgid(r) }
-
-    ## various other headers that you don't think we will need until we
-    ## actually need them.
-
-    ## this is sometimes useful for determining who was the actual target of
-    ## the email, in the case that someone has aliases
-    #recipient_email = m.header["envelope-to"] || @.header["x-original-to"] || m.header["delivered-to"]
-
-    #list_subscribe = m.header["list-subscribe"]
-    #list_unsubscribe = m.header["list-unsubscribe"]
-    #list_post = m.header["list-post"] || m.header["x-mailing-list"]
-
-		if msgid.blank?
-			hostname = Socket.gethostname
-			msgid = "<#{Time.now.to_i}.imaptrope.#{rand 10000}@#{hostname}>" # Stolen from turnsole
-#puts "Can't find Message-Id, setting #{msgid}"
-		end
-
-		if date.blank?
-			date = Time.now.to_s
-#puts "Can't set date from mail, setting #{date}"
-		end
-
-		tmp = RMail::Message.new
-		out = RMail::Message.new
-		
-		tmp.header.replace(m.header)
-		tmp.header["Message-Id"] = msgid
-		tmp.header["Date"] = date
-		tmp.header.delete("")
-		tmp.header.each do |k,v|
-			out.header[k] = v.gsub(/\r+\n+/,"")
-		end
-	
-		out.body = body
-
-		out.to_s
+		m.to_s
 	end
 
 private
+
+	def parsed_mail
+		@parsed_mail ||= Mail.read_from_string(@heliotropeclient.raw_message(@msgid))
+	end
 
 	def get_part(part)
 		part_numbers = part.split(/\./).collect { |i| i.to_i - 1 }
@@ -330,29 +265,29 @@ private
 
 	def body_structure_internal(mail, extensible)
 		ary = []
-		if /message\/rfc822/n.match(mail.header["content_type"])
-			body = RMail::Parser.read(mail.body)
+		if /message\/rfc822/n.match(mail.header["content_type"].decoded)
+			body = mail.body
 			ary.push(quoted("MESSAGE"))
 			ary.push(quoted("RFC822"))
 			ary.push(body_fields(mail, extensible))
-#ary.push(envelope_internal(body))
+			ary.push(envelope_internal(body))
 			ary.push(body_structure_internal(body, extensible))
-			ary.push(mail.body.to_a.length.to_s)
+			ary.push(mail.parts.to_a.length.to_s)
 		elsif mail.multipart?
-			parts = mail.body.collect { |part|
+			parts = mail.parts.collect do |part|
 				body_structure_internal(part, extensible)
-			}.join
+			end.join(" ")
 			ary.push(parts)
-			ary.push(quoted(upcase(mail.header.subtype)))
+			ary.push(quoted(upcase(mail.content_type.gsub(/.*\//,""))))
 			if extensible
 				ary.push(body_ext_mpart(mail))
 			end
 		else
-			ary.push(quoted(upcase(mail.header.media_type)))
-			ary.push(quoted(upcase(mail.header.subtype)))
+			ary.push(quoted(upcase(mail.content_type.gsub(/.*\//,""))))
+			ary.push(quoted(upcase(mail.content_type.gsub(/\/.*/,""))))
 			ary.push(body_fields(mail, extensible))
-			if mail.header.media_type == "text"
-				ary.push(mail.body.split(/\n/).length.to_s)
+			if mail.content_type.gsub(/\/.*/,"") == "text"
+				ary.push(mail.body.split(/\r\n/).length.to_s)
 			end
 			if extensible
 				ary.push(body_ext_1part(mail))
@@ -363,10 +298,10 @@ private
 
 	def body_fields(mail, extensible)
 		fields = []
-		params = "(" + mail.header.params("content-type", {}).collect { |k, v|
-			v.gsub!(/\s/,"")
-			format("%s %s", quoted(upcase(k)), quoted(v))
-		}.join(" ") + ")"
+		params = "(" + mail.content_type.collect do |value|
+			value.gsub!(/\s/,"")
+			format("%s %s", quoted("content_type"), quoted(value))
+		end.join(" ") + ")"
 		if params == "()"
 			fields.push("NIL")
 		else
@@ -380,15 +315,6 @@ private
 		fields.push(mail.body.gsub(/\n/, "\r\n").length.to_s)
 		return fields.join(" ")
 	end
-
-  ## hash the fuck out of all message ids. trust me, you want this.
-  def munge_msgid msgid
-    Digest::MD5.hexdigest msgid
-  end
-
-  def self.find_msgids msgids
-    msgids.scan(/<(.+?)>/).map(&:first)
-  end
 
   def mime_part_types part=@m
     ptype = part.header["content-type"] || ""
@@ -421,15 +347,6 @@ private
     end
   end
 
-private
-
-	def parsed_mail
-		if @parsed_mail.nil?
-			@parsed_mail = RMail::Parser.read(@mail_store.fetch_rawbody_for_uid(@uid))
-		end
-		return @parsed_mail
-	end
-
 	def body_ext_mpart(mail)
 		exts = []
 		exts.push(body_fld_param(mail))
@@ -446,7 +363,7 @@ private
 	end
 
 	def body_fld_param(mail)
-		unless mail.header.field?("content-type")
+		if mail.header.fields.select{|f| f.name == "content-type"}
 			return "NIL"
 		end
 		params = mail.header.params("content-type", {}).collect { |k, v|
@@ -464,9 +381,9 @@ private
 		unless mail.header.field?("content-disposition")
 			return "NIL"
 		end
-		params = mail.header.params("content-disposition", {}).collect { |k, v|
-			v.gsub!(/\s/,"")
-			format("%s %s", quoted(upcase(k)), quoted(v))
+		params = mail.header["content-disposition"].collect { |value|
+			value.gsub!(/\s/,"")
+			format("%s %s", quoted("content-disposition"), quoted(value))
 		}
 		if params.empty?
 			p = "NIL"

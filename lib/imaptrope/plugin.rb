@@ -23,17 +23,17 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 
-class Ximapd
-  class Plugin
-    @@directories = nil
-    @@loaded = false
+	class IMAPTrope
+		class Plugin
+			@@directories = nil
+			@@loaded = false
 
-    def self.directories=(dirs)
-      @@directories = dirs
-    end
+			def self.directories=(dirs)
+				@@directories = dirs
+			end
 
-    def self.create_plugins(config, mail_store)
-      return Plugins.new([]) unless config.key?("plugins")
+			def self.create_plugins(config, mail_store)
+				return Plugins.new([]) unless config.key?("plugins")
       if !@@loaded && @@directories
         logger = config["logger"]
         for plugin in config["plugins"]

@@ -38,23 +38,11 @@ require "date"
 require "set"
 require "logger"
 require "timeout"
-require "optparse"
+#require "optparse"
 require "sdbm"
 require "rmail/parser"
-
-require "ximapd/error"
-require "ximapd/double-dispatchable"
-require "ximapd/sequence"
-require "ximapd/mail-store"
-require "ximapd/mailbox"
-require "ximapd/message"
-require "ximapd/session"
-require "ximapd/command"
-require "ximapd/query"
-require "ximapd/backend"
-require "ximapd/plugin"
-require "ximapd/decoder"
-require "ximapd/person"
+require "imaptrope"
+require 'trollop'
 
 # imported from rails
 class Object
@@ -128,46 +116,50 @@ class Net::IMAP
   end
 end
 
-class Ximapd
+class IMAPTrope
   VERSION = "0.2.0"
 
-  PORT = 10143
+  PORT = 10142
   LOG_SHIFT_AGE = 10
   LOG_SHIFT_SIZE = 1 * 1024 * 1024
   MAX_CLIENTS = 10
   TIMEZONE = Time.now.strftime("%z")
 
   def initialize
-    @args = nil
+#@args = nil
     @config = {}
     @mail_store = nil
     @logger = nil
     @server_threads = []
     @sessions = {}
-    @option_parser = OptionParser.new { |opts|
-      opts.banner = "usage: ximapd action [options]"
-      opts.separator("")
-      opts.separator("options:")
-      define_options(opts, @config, OPTIONS)
-      opts.separator("")
-      opts.separator("actions:")
-      define_options(opts, @config, ACTIONS)
-    }
+    #@option_parser = OptionParser.new { |opts|
+      #opts.banner = "usage: imaptrope action [options]"
+      #opts.separator("")
+      #opts.separator("options:")
+      #define_options(opts, @config, OPTIONS)
+      #opts.separator("")
+      #opts.separator("actions:")
+      #define_options(opts, @config, ACTIONS)
+    #}
     @max_clients = nil
   end
 
   def run(args)
     begin
       trap("INT", "IGNORE")
-      @args = args
-      parse_options(@args)
+      @config = args
+      parse_options(args)
       @config["logger"] = @logger
       @max_clients = @config["max_clients"] || MAX_CLIENTS
       @sessions = {}
       init_profiler if @config["profile"]
-      send(@config["action"])
+      if @config[:start] == true
+        start
+      else
+        raise "action is not start"
+      end
     rescue Exception => e
-      STDERR.printf("ximapd: %s\n", e)
+      STDERR.printf("imaptrope: %s\n", e)
       @logger.log_exception(e) if @logger
       if @config["action"] == "import" || @config["action"] == "import_via_imap"
         exit(75)
@@ -200,30 +192,24 @@ class Ximapd
 
   def parse_options(args)
     begin
-      @option_parser.parse!(args)
-      raise "no action are specified" unless @config["action"]
-      if @config["action"] != "help" && @config["action"] != "version"
-        config_file = File.expand_path(@config["config_file"] || "~/.ximapd")
-        config = File.open(config_file) { |f|
-          if f.stat.mode & 0004 != 0
-            raise format("%s is world readable", config_file)
-          end
-          YAML.load(f)
-        }
-        @config = config.merge(@config)
-        @config["data_dir"] ||= File.expand_path("~/ximapd")
-        @config["port"] ||= PORT
-        if @config.key?("plugin_path")
-          path = @config["plugin_path"]
-          Plugin.directories = path.split(File::PATH_SEPARATOR).collect { |dir|
-            File.expand_path(dir)
-          }
+      config_file = File.expand_path(@config["config_file"] || "~/.config/imaptrope.conf")
+      config = File.open(config_file) { |f|
+        if f.stat.mode & 0004 != 0
+          raise format("%s is world readable", config_file)
         end
-        @logger = open_logger
+        YAML.load(f)
+      }
+      @config = config.merge(@config)
+      if @config.key?("plugin_path")
+        path = @config["plugin_path"]
+        Plugin.directories = path.split(File::PATH_SEPARATOR).collect { |dir|
+          File.expand_path(dir)
+        }
       end
+      @logger = open_logger
     rescue StandardError => e
-      raise if @config["debug"]
-      STDERR.printf("ximapd: %s\n", e)
+      raise if @config[:debug]
+      STDERR.printf("imaptrope: %s\n", e)
       exit(1)
     end
   end
@@ -260,12 +246,12 @@ class Ximapd
   end
 
   def open_logger
-    if @config["debug"]
+    if @config[:debug]
       logger = Logger.new(STDERR)
       logger.level = Logger::DEBUG
     else
       log_file = @config["log_file"] ||
-        File.expand_path("ximapd.log", @config["data_dir"])
+        File.expand_path("imaptrope.log", @config["data_dir"])
       FileUtils.mkdir_p(File.dirname(log_file))
       shift_age = @config["log_shift_age"] || LOG_SHIFT_AGE
       shift_size = @config["log_shift_size"] || LOG_SHIFT_SIZE
@@ -274,10 +260,10 @@ class Ximapd
       logger.level = Logger.const_get(log_level)
     end
     logger.datetime_format = "%Y-%m-%dT%H:%M:%S "
-    if @config["action"] != "start"
+    if @config[:start] == false
       for m in [:fatal, :error, :warn]
         class << logger; self; end.send(:define_method, m) do |s|
-          STDERR.printf("ximapd: %s\n", s)
+          STDERR.printf("imaptrope: %s\n", s)
           super(s)
         end
       end
@@ -307,14 +293,14 @@ class Ximapd
     end
     @config["user"] ||= ENV["USER"] || ENV["LOGNAME"] || read_input("user: ")
     @config["password"] ||= read_input("password: ", true)
-    daemon unless @config["debug"]
+#daemon unless @config["debug"] == true
     open_pid_file("w") do |f|
       f.puts(Process.pid)
     end
     Signal.trap("TERM", &method(:terminate))
     Signal.trap("INT", &method(:terminate))
     begin
-      @mail_store = Ximapd::MailStore.new(@config)
+      @mail_store = MailStore.new(@config)
       begin
         start_servers
         @config.each {|key, value| puts "#{key} : #{value}"}
@@ -345,15 +331,15 @@ class Ximapd
   end
 
   def start_servers
-    if @config["ssl"]
-      if @config["ssl_port"]
-        start_server(@config["port"], false)
-        start_server(@config["ssl_port"], true)
+    if @config[:ssl]
+      if @config[:ssl_port]
+        start_server(@config[:port], false)
+        start_server(@config[:ssl_port], true)
       else
-        start_server(@config["port"], true)
+        start_server(@config[:port], true)
       end
     else
-      start_server(@config["port"], false)
+      start_server(@config[:port], false)
     end
   end
 
@@ -468,7 +454,7 @@ class Ximapd
   end
 
   def version
-    printf("ximapd version %s\n", VERSION)
+    printf("imaptrope version %s\n", VERSION)
     puts
     printf("  Platform    : %s\n", RUBY_PLATFORM)
     printf("  Ruby        : %s (%s)\n", RUBY_VERSION, RUBY_RELEASE_DATE)
@@ -541,10 +527,10 @@ class Ximapd
   end
 
   def interactive
-    @mail_store = Ximapd::MailStore.new(@config)
+    @mail_store = IMAPTrope::MailStore.new(@config)
     begin
       sock = ConsoleSocket.new
-      session = Ximapd::Session.new(@config, sock, @mail_store, self, true)
+      session = IMAPTrope::Session.new(@config, sock, @mail_store, self, true)
       session.start
     ensure
       @mail_store.close
@@ -619,7 +605,7 @@ class Ximapd
   end
 
   def open_mail_store
-    mail_store = Ximapd::MailStore.new(@config)
+    mail_store = IMAPTrope::MailStore.new(@config)
     begin
       mail_store.synchronize do
         if @config["dest_mailbox"] &&
@@ -771,7 +757,7 @@ class Ximapd
   end
 
   OPTIONS = [
-    StringOption.new("config_file", "path to .ximapd"),
+    StringOption.new("config_file", "path to imaptrope.conf"),
     IntOption.new("port", "port"),
     StringOption.new("user", "user"),
     StringOption.new("password", "password"),
@@ -830,4 +816,25 @@ class Ximapd
   ]
 end
 
+## exec starts here
+
+
+
+opts = Trollop::options do
+  opt :start, "start server"
+  opt :debug, "debug mode"
+
+  opt :user, "user name", :default => "anon"
+  opt :password, "password", :default => "anon"
+  opt :port, "port", :default => 10142
+
+  opt :config_file, "path to imaptrope.conf", :default => "~/.config/imaptrope.conf"
+  opt :data_dir, "data dir", :default =>  "~/Documents/maildir/imaptrope"
+end
+
+File.umask(0077)
+imaptrope = IMAPTrope.new
+imaptrope.run(opts)
+
 # vim: set filetype=ruby expandtab sw=2 :
+

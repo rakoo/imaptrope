@@ -23,7 +23,7 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 
-class Ximapd
+class IMAPTrope
   class Command
     attr_reader :session
     attr_accessor :tag, :name
@@ -86,12 +86,15 @@ class Ximapd
     def exec
       capa = "CAPABILITY IMAP4REV1 IDLE"
       unless @session.secure?
-        capa += " LOGINDISABLED"
+#capa += " LOGINDISABLED"
       end
       capa += " AUTH=CRAM-MD5"
       if @session.config["starttls"]
         capa += " STARTTLS"
       end
+			# test
+			capa += " AUTH=PLAIN"
+			capa += " UIDPLUS"
       @session.send_data(capa)
       send_tagged_ok
     end
@@ -213,6 +216,7 @@ class Ximapd
       begin
         status = nil
         @session.synchronize do
+					@mail_store.current_mailbox = @mailbox_name
           status = @mail_store.get_mailbox_status(@mailbox_name,
                                                   @session.read_only?)
         end
@@ -393,6 +397,7 @@ class Ximapd
       s = @atts.collect { |att|
         format("%s %d", att, status.send(att.downcase))
       }.join(" ")
+			puts "; atts in command : #{s}"
       @session.send_data("STATUS %s (%s)", quoted(@mailbox_name), s)
       @session.send_queued_responses
       send_tagged_ok
@@ -407,14 +412,26 @@ class Ximapd
       @message = message
     end
 
+    def send_tagged_ok_append
+			mailbox_status = @mail_store.get_mailbox_status(@mailbox_name, "fake") #TODO remove the 2nd arg
+			uidvalidity = mailbox_status.uidvalidity
+			@session.send_tagged_ok(@tag, "[APPENDUID %s %s]", uidvalidity, @response[:uid])
+    end
+
     def exec
       @session.synchronize do
-        @mail_store.import_mail(@message, @mailbox_name, @flags.join(" "))
+				begin
+					@logger.debug "appending in command"
+					@response = @mail_store.append_mail(@message, @mailbox_name, @flags)
+					@logger.debug "append ok in command"
+				rescue MailboxExistError => e
+					@logger.debug e.inspect
+				end
         n = @mail_store.get_mailbox_status(@mailbox_name, true).messages
         @session.push_queued_response(@mailbox_name, "#{n} EXISTS")
       end
       @session.send_queued_responses
-      send_tagged_ok
+      send_tagged_ok_append
     end
   end
 
@@ -427,12 +444,12 @@ class Ximapd
             begin
               @session.idle = true
               @session.sync
-              @mail_store.mailbox_db.transaction do
-                @mail_store.plugins.fire_event(:on_idle)
-                if @session.all_session_on_idle?
-                  @mail_store.plugins.fire_event(:on_idle_all)
-                end
-              end
+              #@mail_store.mailbox_db.transaction do
+                #@mail_store.plugins.fire_event(:on_idle)
+                #if @session.all_session_on_idle?
+                  #@mail_store.plugins.fire_event(:on_idle_all)
+                #end
+              #end
             ensure
               @session.idle = false
             end
@@ -470,7 +487,8 @@ class Ximapd
         mailbox = @session.get_current_mailbox
         uids = mailbox.uid_search(mailbox.query&FlagQuery.new("\\Deleted"))
         deleted_mails = mailbox.uid_fetch(uids).reverse
-        @mail_store.delete_mails(deleted_mails)
+# no
+#@mail_store.delete_mails(deleted_mails)
       end
       @session.send_queued_responses
       @session.close_mailbox
@@ -483,17 +501,19 @@ class Ximapd
       deleted_seqnos = nil
       @session.synchronize do
         @session.sync
-        mailbox = @session.get_current_mailbox
-        uids = mailbox.uid_search(mailbox.query&FlagQuery.new("\\Deleted"))
-        deleted_mails = mailbox.uid_fetch(uids).reverse
-        deleted_seqnos = deleted_mails.collect { |mail|
-          mail.seqno
-        }
-        @mail_store.delete_mails(deleted_mails)
+        @mailbox = @session.get_current_mailbox
+        uids = @mailbox.uid_search(@mailbox.query&FlagQuery.new("\\Deleted"))
+        deleted_mails = @mailbox.uid_fetch(uids).reverse
+
+
+				# We need to use seqno, because of the return
+        deleted_seqnos = deleted_mails.collect{ |mail| mail.seqno }
       end
       for seqno in deleted_seqnos
-        @session.send_data("%d EXPUNGE", seqno)
-        @session.push_queued_response(@session.current_mailbox, "#{seqno} EXISTS")
+				raise RuntimeError, "seqno to delete is nil !" if seqno.nil?
+				ret = @mail_store.delete_mail(@mailbox, seqno)
+        @session.send_data("%d EXPUNGE", ret)
+        @session.push_queued_response(@session.current_mailbox, "#{ret} EXISTS")
       end
       @session.send_queued_responses
       send_tagged_ok
@@ -633,7 +653,7 @@ class Ximapd
 
   class FlagsFetchAtt
     def fetch(mail)
-      return format("FLAGS (%s)", mail.flags)
+      return format("FLAGS (%s)", mail.flags.join(" "))
     end
   end
 
@@ -658,7 +678,9 @@ class Ximapd
     include DataFormat
 
     def fetch(mail)
-      return format("RFC822.HEADER %s", literal(mail.get_header))
+      return format("RFC822.HEADER %s", literal(mail.get_header.fields.map do |f|
+				"#{f.name}: #{f.value}"
+			end.join("\r\n")))
     end
   end
 
@@ -671,7 +693,7 @@ class Ximapd
   class RFC822TextFetchAtt
     def fetch(mail)
 			s = mail.body
-			return format("RFC822.TEXT {%d}\r\n%s", s.length, s)
+			return format("RFC822.TEXT {%d}\r\n%s", s.size, s)
     end
   end
 
@@ -711,7 +733,7 @@ class Ximapd
         end
         result = format_data(mail.mime_body(part))
         unless @peek
-          flags = mail.flags(false)
+          flags = mail.flags(false).join(" ")
           unless /\\Seen\b/ni.match(flags)
             if flags.empty?
               flags = "\\Seen"
@@ -719,7 +741,7 @@ class Ximapd
               flags += " \\Seen"
             end
             mail.flags = flags
-            result += format(" FLAGS (%s)", flags)
+            result += format(" FLAGS (%s)", flags.join(" "))
           end
         end
         return result
@@ -824,11 +846,11 @@ class Ximapd
     end
 
     def send_fetch_response(mail, flags)
-      @session.send_data("%d FETCH (FLAGS (%s))", mail.seqno, flags)
+      @session.send_data("%d FETCH (FLAGS (%s))", mail.seqno, flags.join(" "))
     end
 
     def queue_fetch_response(mail, flags)
-      @session.push_queued_response(@session.current_mailbox, "#{mail.seqno} FETCH (FLAGS (#{flags}))")
+      @session.push_queued_response(@session.current_mailbox, "#{mail.seqno} FETCH (FLAGS (#{flags.join(' ')}))")
     end
   end
 
@@ -841,11 +863,11 @@ class Ximapd
 
     def send_fetch_response(mail, flags)
       @session.send_data("%d FETCH (FLAGS (%s) UID %d)",
-                         mail.seqno, flags, mail.uid)
+                         mail.seqno, flags.join(" "), mail.uid)
     end
 
     def queue_fetch_response(mail, flags)
-      @session.push_queued_response(@session.current_mailbox, "#{mail.seqno} FETCH (FLAGS (#{flags}) UID #{mail.uid})")
+      @session.push_queued_response(@session.current_mailbox, "#{mail.seqno} FETCH (FLAGS (#{flags.join(' ')}) UID #{mail.uid})")
     end
   end
 
@@ -862,27 +884,49 @@ class Ximapd
     def get_new_flags(mail)
       raise SubclassResponsibilityError.new
     end
+
   end
 
   class SetFlagsStoreAtt < FlagsStoreAtt
     def get_new_flags(mail)
-      return @flags.join(" ")
+			# IMAP clients will only set message state, not heliotrope labels.
+			# We can separate them
+			flags_labels_list = mail.flags - MailStore::MESSAGE_STATE.to_a
+			flags_return = flags_labels_list + @flags
+
+			# remove ~unread if flags_return contains \Seen
+			flags_return -= ["\~unread"] if flags_return.include?('\\Seen')
+
+      return flags_return.join(" ")
     end
   end
 
   class AddFlagsStoreAtt < FlagsStoreAtt
+
+		def initialize(flags, silent = false, session)
+			super(flags, silent)
+			@session = session
+		end
+
     def get_new_flags(mail)
-      flags = mail.flags(false).split(/ /)
-      flags |= @flags
-      return flags.join(" ")
+			flags_return = mail.flags
+      flags_return |= @flags
+
+			# remove ~unread if flags_return contains \Seen
+			flags_return -= ["\~unread"] if @flags.include?('\\Seen')
+
+      return flags_return.join(" ")	
     end
   end
 
   class RemoveFlagsStoreAtt < FlagsStoreAtt
     def get_new_flags(mail)
-      flags = mail.flags(false).split(/ /)
-      flags -= @flags
-      return flags.join(" ")
+      flags_return = mail.flags
+      flags_return -= @flags
+
+			# add ~unread if we want to remove \Seen
+			flags_return.push("~unread") if @flags.include?("\\Seen")
+      return flags_return.join(" ")
     end
   end
 
@@ -892,27 +936,56 @@ class Ximapd
       @mailbox_name = mailbox_name
     end
 
+		def format_seqsets_to_output(sequence_sets)
+			puts "seq : #{sequence_sets}"
+			sequence_sets.flatten!
+
+			out = ""
+
+			sequence_sets.each do |s|
+				out << "," unless sequence_sets.first == s
+				case s
+				when Range, Array
+					out << s.first.to_s << ":" << s.last.to_s
+				when String, Integer
+					out << s.to_s
+				else
+					out << format_seqsets_to_output(s)
+				end
+			end
+
+			out
+		end
+					
+
+		# supersede to be conform to UIDPLUS
+    def send_tagged_ok_copy
+			mailbox_status = @mail_store.get_mailbox_status(@mailbox_name)
+			uidvalidity = mailbox_status.uidvalidity
+			seq_before = @sequence_set
+
+			sequence_set_before_copy = format_seqsets_to_output(seq_before)
+			sequence_set_after_copy = format_seqsets_to_output(@seq_after)
+			@session.send_tagged_ok(@tag, "[COPYUID #{uidvalidity} #{sequence_set_before_copy} #{sequence_set_after_copy}] Done")
+    end
+
     def exec
       mails = nil
       dest_mailbox = nil
+
       @session.synchronize do
         mailbox = @session.get_current_mailbox
         mails = fetch_mails(mailbox, @sequence_set)
 				dest_mailbox = @mail_store.get_mailbox(@mailbox_name)
       end
-      override = {"x-ml-name" => dest_mailbox["list_id"] || ""}
+
 			@session.synchronize do
-#@mail_store.plugins.fire_event(:on_copy, mail, dest_mailbox)
-          #uid = @mail_store.import_mail(mail.to_s, dest_mailbox.name,
-                                        #mail.flags(false), mail.internal_date,
-                                        #override)
-          #dest_mail = dest_mailbox.uid_fetch([uid]).first
-#@mail_store.plugins.fire_event(:on_copied, mail, dest_mail)
-				@mail_store.copy_mails_to_mailbox(mails, dest_mailbox)
+				@seq_after = @mail_store.copy_mails_to_mailbox(mails, dest_mailbox)
 			end
+
       n = @mail_store.get_mailbox_status(@mailbox_name, true).messages
       @session.push_queued_response(@mailbox_name, "#{n} EXISTS")
-      send_tagged_ok
+      send_tagged_ok_copy
     end
 
     private
@@ -1716,7 +1789,7 @@ class Ximapd
       when /\AFLAGS(\.SILENT)?\z/ni
         return SetFlagsStoreAtt.new(flags, !$1.nil?)
       when /\A\+FLAGS(\.SILENT)?\z/ni
-        return AddFlagsStoreAtt.new(flags, !$1.nil?)
+        return AddFlagsStoreAtt.new(flags, !$1.nil?, @session)
       when /\A-FLAGS(\.SILENT)?\z/ni
         return RemoveFlagsStoreAtt.new(flags, !$1.nil?)
       else

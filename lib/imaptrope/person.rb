@@ -1,6 +1,6 @@
 # encoding: UTF-8
 
-class Ximapd
+class IMAPTrope
 class Person
   def initialize name, email, handle
     @name = name

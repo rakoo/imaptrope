@@ -1,4 +1,6 @@
-This version of ximapd is based on https://github.com/shugo/ximapd and adapted to work
+imaptrope is cool.
+
+This is a version of ximapd based on https://github.com/shugo/ximapd and adapted to work
 with heliotrope, the fabulous mail store by William Morgan : 
 https://github.com/wmorgan/heliotrope
 
@@ -7,15 +9,11 @@ JSON-over-HTTP interface of Heliotrope.
 
 INSTALL, SETUP AND THE BORING THINGS
 
-Read README.en (or.ja); you don't need to really install it to test it.
-Just run 
-$ ruby install.rb --prefix=./fake
-to create the 'ximapd' bin that you will use afterwards. You can then
-remove the ./fake dir safely.
+Create ~/ximapd
 
 USAGE
 
-$ ruby -Iruby -Ibackends -I/path/to/heliotrope-client ximapd --start --debug
+$ ruby -Iruby -I/path/to/heliotrope-client bin/imaptrope --start --debug
 
 If you want to test it without destructing everything, you should try
 the tag "safe" and not further, because those implement destructive
@@ -63,7 +61,7 @@ own risks.
 
 [X] STORE
 	; CAREFUL : This modifies your labels, so use with care. It works, but
-	; who knows. Moreover, you MUST ALWAYS conlider that <label> in
+	; who knows. Moreover, you MUST ALWAYS consider that <label> in
 	; heliotrope translates as ~<label> in the IMAP interface
 
 [o] RENAME
@@ -74,10 +72,75 @@ own risks.
 	; \Noselect flag or if it has submailboxes
 
 [o] CREATE
-	; a mailbox cannot be created, you just have to label a mail with the
-	; new label. IMAP will answer OK when you ask it to create a new
-	; mailbox
+	; a mailbox cannot be created, because they are just labels in
+	; heliotrope. It will just add your mailbox name in a fakemailboxes
+	; array, so that it thinks it really exists.
 
-USING OFFLINEIMAP
+USING WITH OFFLINEIMAP
 
-see branch UIDPLUS
+Caution : this will eat your mails ! Don't test it with important mails
+for the moment !
+
+Basically, when a client appends a mail or copies a mail between
+mailboxes, it doesn't know what are its uids given by the server; the
+client has to do itself some work to recaluclate them at each
+connection. Thus, OfflineIMAP adds a 'X-OfflineIMAP' header to our mails
+(yes, it modifies them) to recognize them. If we don't want this to
+happen, we have to return the uid of the mails that OfflineIMAP (or any
+IMAP client) when it acts on our mails; that is what UIDPLUS
+provides. 
+All this stuff to say, UIDPLUS is there to work with
+OfflineIMAP (although it will work with any IMAP client).
+
+If you want to try it, here is the .offlinimaprc I use : 
+
+
+[general]
+accounts = Heliotrope
+
+[Account Heliotrope]
+localrepository = imaptrope # the new name of ximapd :)
+remoterepository = gmailremote
+
+[Repository gmailremote]
+type = IMAP
+remotehost = imap.gmail.com
+remoteuser = user
+remotepass = pass
+ssl = yes
+realdelete = no
+nametrans = lambda folder: 		re.sub('\[Gmail\]/Spam', '~spam',
+    re.sub('\[Gmail\]/Drafts', '~draft', 
+    re.sub('\[Gmail\]/Sent Mail', '~sent', 
+    re.sub('\[Gmail\]/Starred', '\\Starred', 
+    re.sub('\[Gmail\]/Trash', '~trash', 
+    re.sub('\[Gmail\]/All Mail', 'All Mail',
+		re.sub('(^[^(?:INBOX|\[|\])]*$)', lambda pat: '~' + pat.group(1).lower(), folder )))))))
+
+[Repository imaptrope]
+type = IMAP
+remotehost = localhost
+remoteport = 10142
+# those two are specified in ~/.ximapd
+remoteuser = myusername
+remotepass = mypassword
+ssl = no
+nametrans = lambda folder: re.sub('(^\w*$)', r'~\1', folder.lower())
+
+
+Some explanations : 
+
+* nametrans : labels in ximapd (or imaptrope) MUST begin with a ~ 
+* folderfilter : GMail special labels have an equivalent; special labels
+  are translated to ~label
+
+You can then use 
+
+$ offlineimap -1
+
+to sync your IMAP servers. Note that you MUST use the '-1' option, which
+means "no multithreading" : imaptrope is not thread-safe, and will not
+be. This also means that you can have only one client at a time
+connected to imaptrope
+
+REMEMBER : it is not functional yet ! Don't use it on your precious !
