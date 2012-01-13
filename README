@@ -9,11 +9,11 @@ JSON-over-HTTP interface of Heliotrope.
 
 INSTALL, SETUP AND THE BORING THINGS
 
-Create ~/ximapd
+Copy examples/imaptrope.conf to ~/.config/
 
 USAGE
 
-$ ruby -Iruby -I/path/to/heliotrope-client bin/imaptrope --start --debug
+$ ruby -Ilib -I ../heliotrope/lib bin/imaptrope -s -a ~/Documents/tmpdir -d
 
 If you want to test it without destructing everything, you should try
 the tag "safe" and not further, because those implement destructive
