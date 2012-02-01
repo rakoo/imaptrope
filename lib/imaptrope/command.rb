@@ -88,7 +88,7 @@ class IMAPTrope
       unless @session.secure?
 #capa += " LOGINDISABLED"
       end
-      capa += " AUTH=CRAM-MD5"
+#capa += " AUTH=CRAM-MD5"
       if @session.config["starttls"]
         capa += " STARTTLS"
       end
