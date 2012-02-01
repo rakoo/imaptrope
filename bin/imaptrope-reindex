@@ -18,15 +18,14 @@ Options :
 EOS
 	opt :url, "URL of the heliotrope server", :default => "http://localhost:8042"
 	opt :location, "location of the old index folder (will not be erased)", :default => "."
+	opt :dry_run, "dry run", :default => false
 end
 
-dirname = File.join(opts.location, "uidstore-reindexed")
-abort("#{dirname} already exists, please delete/mv it") if File.exists? dirname
-uid_store = LevelDB::DB.new dirname
 hc = HeliotropeClient.new opts.url
 
 ## get the size of the heliotrope message base
 size = hc.size
+puts "got #{size} messages to treat"
 
 ## get labels and state that we want to save
 SPECIAL_MAILBOXES = {
@@ -54,15 +53,14 @@ all_flags = out.uniq
 ## initialize associations
 all_uids = {}
 all_flags.each do |f|
-	all_uids[f] = {"next" => 1}
+	all_uids[f] = {:next => 1}
 end
 
 
 ## read messages and get flags
 (1..size).each do |i|
 	messageinfos = hc.messageinfos i
-	labels = messageinfos["labels"]
-	labels += messageinfos["state"]
+	labels = (messageinfos["labels"] + messageinfos["state"]).uniq
 	message_id = messageinfos["message_id"]
 
 	labels.each do |l|
@@ -71,9 +69,9 @@ end
 		else
 			l = "~" + l
 		end
-		next_uid = all_uids[l]["next"]
+		next_uid = all_uids[l][:next]
 		all_uids[l].merge!({next_uid => i})
-		all_uids[l]["next"] = next_uid + 1
+		all_uids[l][:next] = next_uid + 1
 	end
 
 	puts "; treated #{i} messages" if i % 20 == 0
@@ -83,6 +81,12 @@ end
 puts all_uids
 
 ## store in a new field
+
+return if opts[:dry_run]
+
+dirname = File.join(opts.location, "uidstore-reindexed")
+abort("#{dirname} already exists, please delete/mv it") if File.exists? dirname
+uid_store = LevelDB::DB.new dirname
 
 all_uids.each do |mailbox, hash|
 	next_to_store = hash.delete("next")
