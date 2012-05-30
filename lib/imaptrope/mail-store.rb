@@ -314,9 +314,9 @@ class IMAPTrope
 				mailbox_status.messages = @heliotropeclient.size
 				mailbox_status.unseen = @heliotropeclient.count "~unread"
 			else
-				hlabel = format_label_from_imap_to_heliotrope mailbox_name
-				mailbox_status.messages = count_messages_for_label hlabel
-				mailbox_status.unseen = count_messages_for_label "~unread+#{hlabel}"
+				searchable_hlabel = "~" + format_label_from_imap_to_heliotrope(mailbox_name)
+				mailbox_status.messages = count_messages_for_label searchable_hlabel
+				mailbox_status.unseen = count_messages_for_label "~unread+#{searchable_hlabel}"
 			end
 
 			return mailbox_status

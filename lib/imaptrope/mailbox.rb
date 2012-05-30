@@ -116,9 +116,6 @@ class IMAPTrope
 			mailbox_status = MailboxStatus.new
 			mailbox_status.recent = @heliotropeclient.count "\\Recent" #this label/FLAG doesn't exist, but I don't know what we can do with it anyway
 			mailbox_status.uidnext = next_uid
-
-
-
 			mailbox_status
 		end
 
@@ -127,19 +124,12 @@ class IMAPTrope
 
 			result = @mail_store.search_in_heliotrope new_query  # fetches threads
 
-			thread_ids = []
-			result.each do |thread|
-				# iterates through threads to get ids
-				thread_ids << thread.fetch("thread_id").to_i
+			message_ids = result.map do |thread|
+				thread = @heliotropeclient.thread(thread.fetch("thread_id").to_i)
+				thread.map { |messageinfos| messageinfos.first["message_id"]}
 			end
 
 			message_ids = []
-			thread_ids.each do |id|
-				thread = @heliotropeclient.thread id # get thread messages
-				thread.each do |messageinfos|
-					message_ids <<  messageinfos.first["message_id"] # get message id
-				end
-			end
 
 			message_ids.map{|m| uid_for_message_id m}
 		end
@@ -224,11 +214,11 @@ class IMAPTrope
 			threads_in_mailbox = if query.nil? or query.empty?
 				(1..@heliotropeclient.size).to_a
 			else
-				@mail_store.search_in_heliotrope(query).map{|threadinfos| threadinfos["thread_id"]}
-			end.sort
+				@mail_store.search_in_heliotrope(query).map{|threadinfos| threadinfos["thread_id"]}.compact
+			end
 
 			mails_in_mailbox = threads_in_mailbox.map do |thread_id| 
-				@heliotropeclient.thread(thread_id).map{ |blob| blob.first }.map{|message| message["message_id"]}
+				@heliotropeclient.thread(thread_id).map{ |blob| blob.first }.map{|message| message["message_id"]}.compact
 			end.flatten.sort.unshift("shift")
 
 			out = {}
@@ -249,7 +239,7 @@ class IMAPTrope
 				end
 			end.join("+")
 
-			if @name != "All Mail" && !queryterms.include?(@name)
+			unless @name == "All Mail" || queryterms.include?(@name) || MailStore::SPECIAL_MAILBOXES.include?(@name)
 					queryterms << "+" << "#{@name}" 
 			end
 
@@ -257,16 +247,15 @@ class IMAPTrope
 		end
 
 		def fetch_internal(sequence_set, assoc)
-
 			
 			mails = []
-# assoc contains all the mails in the mailbox. When the
-# client want the message 1..3 (sequence_set), he wants the 3 first
-# messages in the mailbox; imaptrope gives him assoc.fetch(1),
-# assoc.fetch(2) and assoc.fetch(3)
+      # assoc contains all the mails in the mailbox. When the
+      # client want the message 1..3 (sequence_set), he wants the 3 first
+      # messages in the mailbox; imaptrope gives him assoc.fetch(1),
+      # assoc.fetch(2) and assoc.fetch(3)
 	
 			seq_to_fetch_from = sequence_set.map do |atom|
-				if atom.respond_to?(:to_a)
+				if atom.respond_to?(:last) && atom.respond_to?(:first)
 					# transform Range to Array
 					begin
 						if atom.last == -1 # fetch all
@@ -276,8 +265,12 @@ class IMAPTrope
 							atom
 						end
 					end.to_a
-				else
+        elsif atom.respond_to?(:to_a)
 					atom
+        elsif atom.integer?
+          [atom]
+        else
+          raise "unknown atom : #{atom}"
 				end
 			end.flatten
 						

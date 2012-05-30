@@ -487,8 +487,8 @@ class IMAPTrope
         mailbox = @session.get_current_mailbox
         uids = mailbox.uid_search(mailbox.query&FlagQuery.new("\\Deleted"))
         deleted_mails = mailbox.uid_fetch(uids).reverse
-# no
-#@mail_store.delete_mails(deleted_mails)
+        # no
+        #@mail_store.delete_mails(deleted_mails)
       end
       @session.send_queued_responses
       @session.close_mailbox
