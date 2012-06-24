@@ -227,6 +227,8 @@ class IMAPTrope
 		def message_ids_as_seq
 			# get the sequence numbers of the messages in the mailbox
 
+      return @message_ids_as_seq if @message_ids_as_seq
+
 			query = format(@name)
 			threads_in_mailbox = if query.nil? or query.empty?
 				(1..@heliotropeclient.size).to_a
@@ -244,7 +246,7 @@ class IMAPTrope
 				out[index] = message_id
 			end
 
-			out
+      @message_ids_as_seq ||= out
 		end
 
 		def format(query)

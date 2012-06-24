@@ -39,9 +39,9 @@ class Message
 
 	attr_reader :msgid
 
-	def uid; @mailbox.uid_for_message_id(@msgid) end
+	def uid; @uid ||= @mailbox.uid_for_message_id(@msgid) end
 
-	def seqno; @mailbox.seqno_for_message_id(@msgid) end
+	def seqno; @seqno ||= @mailbox.seqno_for_message_id(@msgid) end
 
 	def flags(get_recent=true)
 		# get flags AND labels as a string
