@@ -146,8 +146,6 @@ class IMAPTrope
 				thread.map { |messageinfos| messageinfos.first["message_id"]}
 			end
 
-			message_ids = []
-
 			message_ids.map{|m| uid_for_message_id m}
 		end
 
@@ -171,7 +169,7 @@ class IMAPTrope
 		end
 
 		def uid_for_message_id(message_id)
-			uid = message_ids_as_uids.key(message_id)
+			message_ids_as_uids.key(message_id)
 		end
 
 		def remove_mail(uid_to_remove)
