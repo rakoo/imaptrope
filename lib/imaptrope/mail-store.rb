@@ -310,15 +310,6 @@ class IMAPTrope
 			mailbox_status = get_mailbox(mailbox_name).status
 			mailbox_status.uidvalidity = @uidvalidity_seq.current
 
-			if @name == "All Mail"
-				mailbox_status.messages = @heliotropeclient.size
-				mailbox_status.unseen = @heliotropeclient.count "~unread"
-			else
-				searchable_hlabel = "~" + format_label_from_imap_to_heliotrope(mailbox_name)
-				mailbox_status.messages = count_messages_for_label searchable_hlabel
-				mailbox_status.unseen = count_messages_for_label "~unread+#{searchable_hlabel}"
-			end
-
 			return mailbox_status
     end
 
@@ -466,13 +457,6 @@ class IMAPTrope
 			else
 				return ilabel.gsub(/^\~/,"") # remove ~ from the beginning of the label
 			end
-		end
-
-		def count_messages_for_label hlabel
-			threads = @heliotropeclient.search hlabel
-			threads.map do |thread|
-				@heliotropeclient.thread(thread["thread_id"]).map{|blob| blob.last}
-			end.flatten.size
 		end
 
     def extract_query(mailbox_name)

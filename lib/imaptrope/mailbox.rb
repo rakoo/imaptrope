@@ -116,7 +116,24 @@ class IMAPTrope
 			mailbox_status = MailboxStatus.new
 			mailbox_status.recent = @heliotropeclient.count "\\Recent" #this label/FLAG doesn't exist, but I don't know what we can do with it anyway
 			mailbox_status.uidnext = next_uid
-			mailbox_status
+
+			if @name == "All Mail"
+				mailbox_status.messages = @heliotropeclient.size
+				mailbox_status.unseen = @heliotropeclient.count "~unread"
+			else
+				mailbox_status.messages = messages_count
+				mailbox_status.unseen = messages_count true
+			end
+
+			@mailbox_status ||= mailbox_status
+		end
+
+		def messages_count with_unread=false
+      search_label = with_unread ? "~unread" + @name : @name
+			threads = @heliotropeclient.search search_label
+			threads.map do |thread|
+				@heliotropeclient.threadinfo(thread["thread_id"])["size"]
+			end.flatten.size
 		end
 
 		def uid_search(query)
