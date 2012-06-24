@@ -54,7 +54,7 @@ class IMAPTrope
       @mail_store = mail_store
       @imapd = imapd
       @pre_authenticated = pre_authenticated
-      @logger = @config["logger"]
+      @logger = @config[:logger]
       @parser = CommandParser.new(self, @logger)
       @logout = false
       @peeraddr = nil

@@ -149,7 +149,7 @@ class IMAPTrope
       trap("INT", "IGNORE")
       @config = args
       parse_options(args)
-      @config["logger"] = @logger
+      @config[:logger] = @logger
       @max_clients = @config["max_clients"] || MAX_CLIENTS
       @sessions = {}
       init_profiler if @config["profile"]
@@ -291,9 +291,8 @@ class IMAPTrope
     if server_running?
       raise "already running"
     end
-    @config["user"] ||= ENV["USER"] || ENV["LOGNAME"] || read_input("user: ")
-    @config["password"] ||= read_input("password: ", true)
-#daemon unless @config["debug"] == true
+    @config[:user] ||= ENV["USER"] || ENV["LOGNAME"] || read_input("user: ")
+    @config[:password] ||= read_input("password: ", true)
     open_pid_file("w") do |f|
       f.puts(Process.pid)
     end
@@ -502,15 +501,15 @@ class IMAPTrope
   end
 
   def import_imap
-    @config["remote_user"] ||= read_input("user: ")
-    @config["remote_password"] ||= read_input("password: ", true)
+    @config[:remote_user] ||= read_input("user: ")
+    @config[:remote_password] ||= read_input("password: ", true)
     open_mail_store do |mail_store|
       if ARGV.empty?
         args = ["INBOX"]
       else
         args = @args
       end
-      mail_store.import_imap(args, @config["dest_mailbox"])
+      mail_store.import_imap(args, @config[:dest_mailbox])
     end
   end
 

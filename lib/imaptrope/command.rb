@@ -39,7 +39,7 @@ class IMAPTrope
       @session = session
       @config = session.config
       @mail_store = session.mail_store
-      @logger = @config["logger"]
+      @logger = @config[:logger]
     end
 
     def send_tagged_ok(code = nil)
@@ -144,8 +144,8 @@ class IMAPTrope
       @session.send_continue_req([challenge].pack("m").gsub("\n", ""))
       line = @session.recv_line
       s = line.unpack("m")[0]
-      digest = hmac_md5(challenge, @config["password"])
-      expected = @config["user"] + " " + digest
+      digest = hmac_md5(challenge, @config[:password])
+      expected = @config[:user] + " " + digest
       if s == expected
         @session.login
         send_tagged_ok
@@ -197,8 +197,7 @@ class IMAPTrope
 
     def exec
 # don't use secure session for now
-#if @session.secure? &&
-			if @userid == @config["user"] && @password == @config["password"]
+			if @userid == @config[:user] && @password == @config[:password]
         @session.login
         send_tagged_ok
       else
