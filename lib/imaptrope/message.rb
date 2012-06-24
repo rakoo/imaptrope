@@ -223,8 +223,8 @@ private
 
 	def get_part_internal(mail, part_numbers)
 		n = part_numbers.shift
-		if /message\/rfc822/n.match(mail.header.content_type)
-			mail = RMail::Parser.read(mail.body)
+		if /message\/rfc822/n.match(mail.content_type)
+			mail = Mail.read_from_string(mail.body)
 		end
 		if !mail.multipart? && n == 0
 			m = mail
@@ -298,10 +298,7 @@ private
 
 	def body_fields(mail, extensible)
 		fields = []
-		params = "(" + mail.content_type.collect do |value|
-			value.gsub!(/\s/,"")
-			format("%s %s", quoted("content_type"), quoted(value))
-		end.join(" ") + ")"
+		params = "(" + mail.content_type + ")"
 		if params == "()"
 			fields.push("NIL")
 		else
