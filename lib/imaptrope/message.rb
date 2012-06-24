@@ -64,7 +64,7 @@ class Message
 		# TODO: verify if this is really conform with RFC2822
 		# Get the rawbody only at that time, because some people still send
 		# gigabytes of sh*t through emails, so it can be very large.
-		@heliotropeclient.raw_message(@msgid).bytesize
+		@size ||= @heliotropeclient.raw_message(@msgid).bytesize
 	end
 
 	def envelope
