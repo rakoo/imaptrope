@@ -84,17 +84,12 @@ class IMAPTrope
 
   class CapabilityCommand < Command
     def exec
-      capa = "CAPABILITY IMAP4REV1 IDLE"
+      capa = "CAPABILITY IMAP4REV1 IDLE LOGINDISABLED AUTH=PLAIN AUTH=LOGIN UIDPLUS"
       unless @session.secure?
-#capa += " LOGINDISABLED"
       end
-#capa += " AUTH=CRAM-MD5"
       if @session.config["starttls"]
         capa += " STARTTLS"
       end
-			# test
-			capa += " AUTH=PLAIN"
-			capa += " UIDPLUS"
       @session.send_data(capa)
       send_tagged_ok
     end
