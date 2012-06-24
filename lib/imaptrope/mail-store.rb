@@ -44,7 +44,7 @@ class IMAPTrope
     end
 
     def literal(s)
-      return format("{%d}\r\n%s", s.length, s)
+      return format("{%d}\r\n%s", s.to_s.length, s)
     end
   end
 
