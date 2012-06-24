@@ -549,7 +549,7 @@ class IMAPTrope
   end
 
   def open_pid_file(mode = "r")
-    pid_file = File.expand_path("pid", @config["data_dir"])
+    pid_file = File.expand_path("pid", @config[:data_dir])
     File.open(pid_file, mode) do |f|
       yield(f)
     end
