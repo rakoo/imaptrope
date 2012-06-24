@@ -13,9 +13,9 @@ class Message
 		@mailbox = mailbox
 		@heliotropeclient = heliotropeclient
 
-# These fields shouldn't change, so it is safe to have them once and for
-# all
-# TODO this is all false
+    # These fields shouldn't change, so it is safe to have them once and for
+    # all
+    # TODO this is all false
 
 		@date = messageinfos["date"] #careful : this is UNIX time
 		@msgid = messageinfos["message_id"]
@@ -48,7 +48,7 @@ class Message
 		@mailbox.mail_store.fetch_labels_and_flags_for_message_id @msgid
 	end
 
-	def labels; flags end
+  alias :labels :flags
 
 	def flags=(flags)
 		# set flags AND labels with flags a string
@@ -287,7 +287,7 @@ private
 			ary.push(quoted(upcase(mail.content_type.gsub(/\/.*/,""))))
 			ary.push(body_fields(mail, extensible))
 			if mail.content_type.gsub(/\/.*/,"") == "text"
-				ary.push(mail.body.split(/\r\n/).length.to_s)
+				ary.push(mail.body.to_s.split(/\r\n/).length.to_s)
 			end
 			if extensible
 				ary.push(body_ext_1part(mail))
@@ -309,7 +309,7 @@ private
 		content_transfer_encoding =
 			(mail.header["content-transfer-encoding"] || "7BIT").to_s.upcase
 		fields.push(quoted(content_transfer_encoding))
-		fields.push(mail.body.gsub(/\n/, "\r\n").length.to_s)
+		fields.push(mail.body.to_s.gsub(/\n/, "\r\n").length.to_s)
 		return fields.join(" ")
 	end
 
