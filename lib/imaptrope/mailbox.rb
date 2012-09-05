@@ -131,9 +131,9 @@ class IMAPTrope
 		def messages_count with_unread=false
       search_label = with_unread ? "~unread" + @name : @name
 			threads = @heliotropeclient.search search_label
-			threads.map do |thread|
-				@heliotropeclient.threadinfo(thread["thread_id"])["size"]
-			end.flatten.size
+			threads["results"].inject(0) do |acc, thread|
+				acc += thread["size"].to_i
+			end
 		end
 
 		def uid_search(query)
@@ -141,8 +141,8 @@ class IMAPTrope
 
 			result = @mail_store.search_in_heliotrope new_query  # fetches threads
 
-			message_ids = result.map do |thread|
-				thread = @heliotropeclient.thread(thread.fetch("thread_id").to_i)
+			thread_ids = result.map {|thread| thread["thread_id"]}
+			@heliotropeclient.bulk(:thread, thread_ids).map do |thread|
 				thread.map { |messageinfos| messageinfos.first["message_id"]}
 			end
 
@@ -214,11 +214,9 @@ class IMAPTrope
 			if @name == "All Mail"
 				# there is no uids_list because all mails are added to All Mail
 				# anyway, so it's { 1 => 1, 2 => 2, ...}
-				out = {}
-				(1..@heliotropeclient.size).each.with_index { |value, index| out[index+1] = value}
-				return out
+				(1..@heliotropeclient.size).inject({}) {|acc,i| acc.merge({i => i})}
 			else
-				return uids
+				uids
 			end
 		end
 
@@ -231,18 +229,20 @@ class IMAPTrope
 			threads_in_mailbox = if query.nil? or query.empty?
 				(1..@heliotropeclient.size).to_a
 			else
-				@mail_store.search_in_heliotrope(query).map{|threadinfos| threadinfos["thread_id"]}.compact
+				@mail_store.search_in_heliotrope(query).map{|threadinfos| threadinfos["thread_id"].to_i}.compact
 			end
 
-			mails_in_mailbox = threads_in_mailbox.map do |thread_id| 
-				@heliotropeclient.thread(thread_id).map{ |blob| blob.first }.map{|message| message["message_id"]}.compact
-			end.flatten.sort.unshift("shift")
+			# Add a filling "shift" key to start index at 1
+			mails_in_mailbox = @heliotropeclient.bulk(:thread, threads_in_mailbox).compact.map do |thread|
+	      thread.map do |message| 
+          # message can be fake
+          message.first["type"] == "fake" ? nil : message.first["message_id"].to_i
+        end.compact
+      end.flatten.sort.unshift("shift")
 
-			out = {}
-
-			mails_in_mailbox.each.with_index do |message_id, index|
-				out[index] = message_id
-			end
+      out = mails_in_mailbox.inject({}) do |acc, elem|
+        acc.merge({mails_in_mailbox.index(elem) => elem})
+      end
 
       @message_ids_as_seq ||= out
 		end
@@ -264,41 +264,39 @@ class IMAPTrope
 		end
 
 		def fetch_internal(sequence_set, assoc)
-			
-			mails = []
+
       # assoc contains all the mails in the mailbox. When the
       # client want the message 1..3 (sequence_set), he wants the 3 first
       # messages in the mailbox; imaptrope gives him assoc.fetch(1),
       # assoc.fetch(2) and assoc.fetch(3)
-	
-			seq_to_fetch_from = sequence_set.map do |atom|
+
+			orig_seq = sequence_set.map do |atom|
 				if atom.respond_to?(:last) && atom.respond_to?(:first)
 					# transform Range to Array
 					begin
 						if atom.last == -1 # fetch all
-							puts "; fetching all : from #{atom.first} to #{assoc.keys.last}"
+							puts "; fetching all : from #{atom.first} to last of #{assoc[0..100]}"
 							atom.first .. assoc.keys.last
 						else
 							atom
 						end
 					end.to_a
         elsif atom.respond_to?(:to_a)
-					atom
+					atom.to_a
         elsif atom.integer?
           [atom]
         else
           raise "unknown atom : #{atom}"
 				end
 			end.flatten
-						
-			puts "; fetching #{seq_to_fetch_from} in #{assoc}"
 
-			seq_to_fetch_from.each do |ind|
-				messageinfos = @heliotropeclient.messageinfos assoc.fetch(ind)
-				mails.push(Message.new(messageinfos, self, @heliotropeclient))
+			puts "; fetching #{orig_seq.to_s[0..100]} in #{assoc.to_s[0..100]}"
+
+      messageinfos = @heliotropeclient.bulk(:message_info, orig_seq.map{|index| assoc[index]})
+
+      messageinfos.map do |mi|
+				Message.new(mi, self, @heliotropeclient)
 			end
-
-			mails
 		end
 
 		# correspondance between uid in this mailbox
