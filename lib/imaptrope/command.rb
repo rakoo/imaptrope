@@ -84,7 +84,7 @@ class IMAPTrope
 
   class CapabilityCommand < Command
     def exec
-      capa = "CAPABILITY IMAP4REV1 IDLE LOGINDISABLED AUTH=PLAIN AUTH=LOGIN UIDPLUS"
+      capa = "CAPABILITY IMAP4REV1 IDLE UIDPLUS"
       unless @session.secure?
       end
       if @session.config["starttls"]
@@ -130,6 +130,13 @@ class IMAPTrope
       @session.send_data("BYE IMAP server terminating connection")
       send_tagged_ok
       @session.logout
+    end
+  end
+
+  class AuthenticatePlainCommand < Command
+    def exec
+      line = @session.recv_line
+      p line
     end
   end
 
@@ -1193,6 +1200,8 @@ class IMAPTrope
       case auth_type
       when "CRAM-MD5"
         return AuthenticateCramMD5Command.new
+      when "PLAIN"
+        return AuthenticatePlainCommand.new
       else
         raise format("unknown auth type: %s", auth_type)
       end
