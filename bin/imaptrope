@@ -24,25 +24,17 @@
 # SUCH DAMAGE.
 
 require "socket"
-require "fcntl"
 require "monitor"
 require "net/imap"
-require "pstore"
-require "yaml/store"
 require "find"
 require "fileutils"
 require "digest/md5"
-require "iconv"
-require "nkf"
 require "date"
-require "set"
 require "logger"
 require "timeout"
-#require "optparse"
-require "sdbm"
-require "rmail/parser"
 require "imaptrope"
 require 'trollop'
+require "ruby-prof"
 
 # imported from rails
 class Object

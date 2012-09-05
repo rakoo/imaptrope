@@ -25,12 +25,10 @@
 
 require "heliotrope-client"
 require "set"
-require "rest_client"
 require "json"
 require "leveldb"
 
 class IMAPTrope
-
 
   module DataFormat
     module_function
